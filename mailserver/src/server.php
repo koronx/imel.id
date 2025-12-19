@@ -250,50 +250,71 @@ function parseEmail($rawData) {
                 $result['subject'] = trim($matches[1]);
             }
             
-            // Capture Content-Type and boundary
+            // Capture Content-Type and boundary (handle multiline)
             if (preg_match('/^Content-Type:\s*(.+)$/i', $line, $matches)) {
                 $contentType = trim($matches[1]);
-                if (preg_match('/boundary="([^"]+)"/', $contentType, $boundaryMatch)) {
-                    $boundary = $boundaryMatch[1];
-                }
+            }
+            // Check for boundary on separate line
+            if (preg_match('/boundary="([^"]+)"/', $line, $boundaryMatch)) {
+                $boundary = $boundaryMatch[1];
+            } elseif (preg_match('/boundary=([^\s;]+)/', $line, $boundaryMatch)) {
+                $boundary = trim($boundaryMatch[1], '"');
             }
         } else {
             $body .= $line . "\r\n";
         }
     }
     
+    debugLog("[PARSER] Content-Type", $contentType);
+    debugLog("[PARSER] Boundary", $boundary);
+    debugLog("[PARSER] Body size", strlen($body));
+    
     // If multipart, parse parts
     if (!empty($boundary) && strpos($contentType, 'multipart') !== false) {
+        debugLog("[PARSER] Detected multipart email");
         $parts = explode("--" . $boundary, $body);
+        debugLog("[PARSER] Number of parts", count($parts));
         
-        foreach ($parts as $part) {
+        foreach ($parts as $index => $part) {
             $part = trim($part);
             if (empty($part) || $part === '--') continue;
             
+            debugLog("[PARSER] Processing part", $index);
+            
             // Split part into headers and content
             $partLines = explode("\r\n\r\n", $part, 2);
-            if (count($partLines) < 2) continue;
+            if (count($partLines) < 2) {
+                debugLog("[PARSER] Part has no content", $index);
+                continue;
+            }
             
             $partHeaders = $partLines[0];
             $partContent = $partLines[1];
             
+            debugLog("[PARSER] Part headers", substr($partHeaders, 0, 200));
+            
             // Check content type of this part
             if (preg_match('/Content-Type:\s*text\/plain/i', $partHeaders)) {
                 // Plain text part
+                debugLog("[PARSER] Found text/plain part");
                 $decoded = decodeContent($partContent, $partHeaders);
                 if (empty($result['body'])) {
                     $result['body'] = $decoded;
+                    debugLog("[PARSER] Set plain text body", substr($decoded, 0, 100));
                 }
             } elseif (preg_match('/Content-Type:\s*text\/html/i', $partHeaders)) {
                 // HTML part
+                debugLog("[PARSER] Found text/html part");
                 $decoded = decodeContent($partContent, $partHeaders);
                 if (empty($result['html_body'])) {
                     $result['html_body'] = $decoded;
+                    debugLog("[PARSER] Set HTML body", substr($decoded, 0, 100));
                 }
             }
         }
     } else {
         // Not multipart, just use body as is
+        debugLog("[PARSER] Single part email");
         $result['body'] = trim($body);
     }
     
