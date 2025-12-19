@@ -3,6 +3,19 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 use Workerman\Worker;
 
+// Debug logging function
+function debugLog($message, $data = null) {
+    $debug = getenv('DEBUG') === 'true';
+    if ($debug) {
+        $timestamp = date('Y-m-d H:i:s');
+        echo "[$timestamp] $message";
+        if ($data !== null) {
+            echo ": " . (is_string($data) ? $data : json_encode($data, JSON_PRETTY_PRINT));
+        }
+        echo "\n";
+    }
+}
+
 // Database connection
 class Database {
     private static $instance = null;
@@ -46,6 +59,7 @@ $smtp_worker->name = 'SMTP Server';
 $smtp_worker->count = 4;
 
 $smtp_worker->onConnect = function($connection) {
+    debugLog("[SMTP] New connection from: " . $connection->getRemoteIp());
     $connection->send("220 imel.id SMTP Server Ready\r\n");
     $connection->smtp_state = 'INIT';
     $connection->smtp_from = '';
@@ -57,9 +71,12 @@ $smtp_worker->onMessage = function($connection, $data) {
     $data = trim($data);
     $command = strtoupper(substr($data, 0, 4));
     
+    debugLog("[SMTP] Received command", $data);
+    
     switch ($command) {
         case 'HELO':
         case 'EHLO':
+            debugLog("[SMTP] HELO/EHLO received");
             $connection->send("250 Hello\r\n");
             $connection->smtp_state = 'HELO';
             break;
@@ -67,9 +84,11 @@ $smtp_worker->onMessage = function($connection, $data) {
         case 'MAIL':
             if (preg_match('/FROM:<(.+?)>/i', $data, $matches)) {
                 $connection->smtp_from = $matches[1];
+                debugLog("[SMTP] MAIL FROM", $connection->smtp_from);
                 $connection->send("250 OK\r\n");
                 $connection->smtp_state = 'MAIL';
             } else {
+                debugLog("[SMTP] MAIL FROM syntax error");
                 $connection->send("501 Syntax error\r\n");
             }
             break;
@@ -77,9 +96,11 @@ $smtp_worker->onMessage = function($connection, $data) {
         case 'RCPT':
             if (preg_match('/TO:<(.+?)>/i', $data, $matches)) {
                 $connection->smtp_to[] = $matches[1];
+                debugLog("[SMTP] RCPT TO", $matches[1]);
                 $connection->send("250 OK\r\n");
                 $connection->smtp_state = 'RCPT';
             } else {
+                debugLog("[SMTP] RCPT TO syntax error");
                 $connection->send("501 Syntax error\r\n");
             }
             break;
@@ -102,6 +123,11 @@ $smtp_worker->onMessage = function($connection, $data) {
             if ($connection->smtp_state === 'DATA') {
                 if ($data === '.') {
                     // Save email to database
+                    debugLog("[SMTP] End of DATA, saving email", [
+                        'from' => $connection->smtp_from,
+                        'to' => $connection->smtp_to,
+                        'size' => strlen($connection->smtp_data)
+                    ]);
                     saveEmail($connection);
                     $connection->send("250 OK: Message accepted\r\n");
                     
@@ -125,15 +151,21 @@ function saveEmail($connection) {
         
         // Parse email data
         $emailData = parseEmail($connection->smtp_data);
+        debugLog("[SMTP] Parsed email", [
+            'subject' => $emailData['subject'],
+            'body_length' => strlen($emailData['body'] ?? '')
+        ]);
         
         // Save email for each recipient
         foreach ($connection->smtp_to as $recipient) {
+            debugLog("[SMTP] Looking up recipient", $recipient);
             // Find user by email
             $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
             $stmt->execute([$recipient]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if ($user) {
+                debugLog("[SMTP] User found", ['user_id' => $user['id'], 'email' => $recipient]);
                 $messageId = generateMessageId();
                 
                 $stmt = $db->prepare("
@@ -158,9 +190,14 @@ function saveEmail($connection) {
                 if (!empty($emailData['attachments'])) {
                     saveAttachments($db, $emailId, $emailData['attachments']);
                 }
+                
+                debugLog("[SMTP] Email saved successfully", ['email_id' => $emailId, 'recipient' => $recipient]);
+            } else {
+                debugLog("[SMTP] User not found", $recipient);
             }
         }
     } catch (Exception $e) {
+        debugLog("[SMTP] Error saving email", $e->getMessage());
         echo "Error saving email: " . $e->getMessage() . "\n";
     }
 }

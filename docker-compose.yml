@@ -35,6 +35,7 @@ services:
       DB_NAME: maildb
       DB_USER: mailuser
       DB_PASSWORD: mailpassword
+      DEBUG: "true"
     depends_on:
       database:
         condition: service_healthy
