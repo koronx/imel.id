@@ -63,7 +63,7 @@ services:
       dockerfile: Dockerfile
     command: php /app/worker.php
     deploy:
-      replicas: 3
+      replicas: 1
     environment:
       DB_HOST: database
       DB_PORT: 5432
