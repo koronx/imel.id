@@ -1,0 +1,17 @@
+{
+    "name": "imel.id/mailserver",
+    "description": "Custom Mail Server with SMTP and IMAP support",
+    "require": {
+        "php": ">=8.0",
+        "workerman/workerman": "^4.1",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "ext-pcntl": "*",
+        "ext-sockets": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "MailServer\\": "src/"
+        }
+    }
+}
