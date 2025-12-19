@@ -291,5 +291,39 @@ if ($page === 'download' && isLoggedIn()) {
     <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
     <!-- Quill Editor -->
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    
+    <script>
+    // Initialize Quill editor for compose page
+    $(document).ready(function() {
+        if ($('#editor-container').length && typeof Quill !== 'undefined') {
+            var quill = new Quill('#editor-container', {
+                theme: 'snow',
+                placeholder: 'Tulis pesan email di sini...',
+                modules: {
+                    toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ 'color': [] }, { 'background': [] }],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        [{ 'align': [] }],
+                        ['link'],
+                        ['clean']
+                    ]
+                }
+            });
+            
+            // On form submit, copy Quill content to hidden textarea
+            $('#submit-btn').on('click', function(e) {
+                $('#body-field').val(quill.root.innerHTML);
+            });
+        }
+        
+        // Update custom file input label
+        $('.custom-file-input').on('change', function(e) {
+            var fileName = Array.from(e.target.files).map(f => f.name).join(', ');
+            $(this).next('.custom-file-label').text(fileName || 'Pilih file...');
+        });
+    });
+    </script>
 </body>
 </html>
