@@ -237,7 +237,26 @@ function buildEmailContent($emailJob) {
     $hasHtml = !empty($emailJob['html_body']);
     $hasPlain = !empty($emailJob['body']);
     
-    // Ensure we always have plain text
+    // Debug log actual content
+    debugLog("[WORKER] Email content debug", [
+        'body_preview' => substr($emailJob['body'] ?? '', 0, 100),
+        'html_preview' => substr($emailJob['html_body'] ?? '', 0, 100),
+        'has_plain' => $hasPlain,
+        'has_html' => $hasHtml
+    ]);
+    
+    // Detect if body contains HTML tags
+    $bodyHasHtml = $hasPlain && (strpos($emailJob['body'], '<') !== false && strpos($emailJob['body'], '>') !== false);
+    
+    // Ensure we always have clean plain text
+    if ($bodyHasHtml && !$hasHtml) {
+        // Body contains HTML but html_body is empty - move to html_body and create plain text
+        $emailJob['html_body'] = $emailJob['body'];
+        $emailJob['body'] = strip_tags($emailJob['body']);
+        $hasHtml = true;
+        debugLog("[WORKER] Detected HTML in body field, separated to html_body");
+    }
+    
     $plainText = $hasPlain ? $emailJob['body'] : ($hasHtml ? strip_tags($emailJob['html_body']) : 'No content');
     
     if ($hasAttachments) {
