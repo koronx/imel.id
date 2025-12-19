@@ -1,0 +1,74 @@
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: maildb
+    environment:
+      POSTGRES_USER: mailuser
+      POSTGRES_PASSWORD: mailpassword
+      POSTGRES_DB: maildb
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - mailnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailserver:
+    build:
+      context: ./mailserver
+      dockerfile: Dockerfile
+    container_name: mailserver
+    ports:
+      - "25:25"       # SMTP
+      - "143:143"     # IMAP
+      - "587:587"     # SMTP submission
+      - "993:993"     # IMAPS
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: maildb
+      DB_USER: mailuser
+      DB_PASSWORD: mailpassword
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - mailnet
+    volumes:
+      - ./storage:/storage
+
+  webmail:
+    build:
+      context: ./webmail
+      dockerfile: Dockerfile
+    container_name: webmail
+    ports:
+      - "80:80"
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: maildb
+      DB_USER: mailuser
+      DB_PASSWORD: mailpassword
+      MAIL_HOST: mailserver
+      MAIL_PORT: 25
+      IMAP_HOST: mailserver
+      IMAP_PORT: 143
+    depends_on:
+      - mailserver
+      - database
+    networks:
+      - mailnet
+    volumes:
+      - ./webmail/src:/var/www/html
+      - ./storage:/storage
+
+networks:
+  mailnet:
+    driver: bridge
