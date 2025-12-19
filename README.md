@@ -1,6 +1,6 @@
 # imel.id
 
-Aplikasi email custom dengan mailserver berbasis PHP Workerman dan webmail interface.
+Aplikasi email custom dengan mailserver berbasis PHP Workerman dan webmail interface
 
 ## 🚀 Fitur
 
