@@ -28,54 +28,94 @@ $stmt->execute([$emailId]);
 $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
-<div class="container">
-    <div style="margin-bottom: 1rem; display: flex; gap: 1rem;">
-        <a href="?page=inbox" class="btn">← Kembali ke Inbox</a>
-        <a href="?page=compose&reply=<?php echo $emailId; ?>" class="btn btn-success">↩️ Balas</a>
-    </div>
-    
-    <div class="email-detail">
-        <div class="email-detail-header">
-            <h2><?php echo htmlspecialchars($email['subject'] ?: '(Tanpa Subjek)'); ?></h2>
-            
-            <div style="margin-top: 1rem; color: #7f8c8d;">
-                <div><strong>Dari:</strong> <?php echo htmlspecialchars($email['from_email']); ?></div>
-                <div><strong>Kepada:</strong> <?php echo htmlspecialchars($email['to_email']); ?></div>
-                <?php if ($email['cc']): ?>
-                    <div><strong>CC:</strong> <?php echo htmlspecialchars($email['cc']); ?></div>
-                <?php endif; ?>
-                <div><strong>Tanggal:</strong> <?php echo date('d F Y H:i', strtotime($email['received_at'])); ?></div>
+<!-- Content Header (Page header) -->
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1><i class="fas fa-envelope-open"></i> Detail Email</h1>
+            </div>
+            <div class="col-sm-6">
+                <div class="float-right">
+                    <a href="?page=inbox" class="btn btn-default">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </a>
+                    <a href="?page=compose&reply=<?php echo $emailId; ?>" class="btn btn-primary">
+                        <i class="fas fa-reply"></i> Balas
+                    </a>
+                </div>
             </div>
         </div>
-        
-        <div class="email-detail-body">
-            <?php 
-            // Display HTML body if available, otherwise show plain text
-            if (!empty($email['html_body'])) {
-                echo $email['html_body'];
-            } else {
-                echo nl2br(htmlspecialchars($email['body']));
-            }
-            ?>
-        </div>
-        
-        <?php if (!empty($attachments)): ?>
-            <div class="attachment-list">
-                <h3>Lampiran (<?php echo count($attachments); ?>)</h3>
-                <?php foreach ($attachments as $attachment): ?>
-                    <div class="attachment-item">
-                        <div>
-                            <strong>📎 <?php echo htmlspecialchars($attachment['filename']); ?></strong>
-                            <small style="color: #7f8c8d; margin-left: 0.5rem;">
-                                (<?php echo number_format($attachment['size'] / 1024, 2); ?> KB)
-                            </small>
-                        </div>
-                        <a href="?page=download&id=<?php echo $attachment['id']; ?>" class="btn" style="padding: 0.5rem 1rem;">
-                            Unduh
-                        </a>
+    </div>
+</section>
+
+<!-- Main content -->
+<section class="content">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-primary card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <?php echo htmlspecialchars($email['subject'] ?: '(Tanpa Subjek)'); ?>
+                        </h3>
                     </div>
-                <?php endforeach; ?>
+                    
+                    <div class="card-body">
+                        <dl class="row">
+                            <dt class="col-sm-2"><i class="fas fa-user"></i> Dari:</dt>
+                            <dd class="col-sm-10"><?php echo htmlspecialchars($email['from_email']); ?></dd>
+                            
+                            <dt class="col-sm-2"><i class="fas fa-envelope"></i> Kepada:</dt>
+                            <dd class="col-sm-10"><?php echo htmlspecialchars($email['to_email']); ?></dd>
+                            
+                            <?php if ($email['cc']): ?>
+                                <dt class="col-sm-2"><i class="fas fa-copy"></i> CC:</dt>
+                                <dd class="col-sm-10"><?php echo htmlspecialchars($email['cc']); ?></dd>
+                            <?php endif; ?>
+                            
+                            <dt class="col-sm-2"><i class="fas fa-calendar"></i> Tanggal:</dt>
+                            <dd class="col-sm-10"><?php echo date('d F Y H:i', strtotime($email['received_at'])); ?></dd>
+                        </dl>
+                        
+                        <hr>
+                        
+                        <div class="email-content">
+                            <?php 
+                            // Display HTML body if available, otherwise show plain text
+                            if (!empty($email['html_body'])) {
+                                echo $email['html_body'];
+                            } else {
+                                echo nl2br(htmlspecialchars($email['body']));
+                            }
+                            ?>
+                        </div>
+                        
+                        <?php if (!empty($attachments)): ?>
+                            <hr>
+                            <div class="attachments">
+                                <h5><i class="fas fa-paperclip"></i> Lampiran (<?php echo count($attachments); ?>)</h5>
+                                <div class="list-group list-group-flush">
+                                    <?php foreach ($attachments as $attachment): ?>
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="fas fa-file"></i>
+                                                <strong><?php echo htmlspecialchars($attachment['filename']); ?></strong>
+                                                <small class="text-muted ml-2">
+                                                    (<?php echo number_format($attachment['size'] / 1024, 2); ?> KB)
+                                                </small>
+                                            </div>
+                                            <a href="?page=download&id=<?php echo $attachment['id']; ?>" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-download"></i> Unduh
+                                            </a>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
-        <?php endif; ?>
+        </div>
     </div>
-</div>
+</section>

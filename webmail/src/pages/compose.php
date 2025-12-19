@@ -24,45 +24,91 @@ if ($replyEmail) {
 }
 ?>
 
-<div class="container">
-    <div class="compose-form">
-        <h2><?php echo $replyEmail ? 'Balas Email' : 'Tulis Email Baru'; ?></h2>
-        
-        <form method="POST" action="?page=send" enctype="multipart/form-data">
-            <div class="form-group">
-                <label>Kepada</label>
-                <input type="email" name="to" required placeholder="penerima@domain.com" value="<?php echo htmlspecialchars($to); ?>">
+<!-- Content Header (Page header) -->
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1><i class="fas fa-envelope"></i> <?php echo $replyEmail ? 'Balas Email' : 'Tulis Email Baru'; ?></h1>
             </div>
-            
-            <div class="form-group">
-                <label>CC (opsional)</label>
-                <input type="text" name="cc" placeholder="email1@domain.com, email2@domain.com">
-            </div>
-            
-            <div class="form-group">
-                <label>Subjek</label>
-                <input type="text" name="subject" required value="<?php echo htmlspecialchars($subject); ?>">
-            </div>
-            
-            <div class="form-group">
-                <label>Pesan</label>
-                <div id="editor-container"><?php echo $body; ?></div>
-                <textarea name="body" id="body-field" style="display:none;" required></textarea>
-            </div>
-            
-            <div class="form-group">
-                <label>Lampiran</label>
-                <input type="file" name="attachments[]" multiple>
-                <small style="color: #7f8c8d;">Maksimal 50MB per file</small>
-            </div>
-            
-            <div style="display: flex; gap: 1rem;">
-                <button type="submit" class="btn btn-success" id="submit-btn">📤 Kirim</button>
-                <a href="?page=inbox" class="btn">Batal</a>
-            </div>
-        </form>
+        </div>
     </div>
-</div>
+</section>
+
+<!-- Main content -->
+<section class="content">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-primary card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-edit"></i> Compose Email
+                        </h3>
+                    </div>
+                    
+                    <form method="POST" action="?page=send" enctype="multipart/form-data">
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Kepada</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                    </div>
+                                    <input type="email" name="to" class="form-control" required placeholder="penerima@domain.com" value="<?php echo htmlspecialchars($to); ?>">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>CC (opsional)</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-users"></i></span>
+                                    </div>
+                                    <input type="text" name="cc" class="form-control" placeholder="email1@domain.com, email2@domain.com">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Subjek</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-tag"></i></span>
+                                    </div>
+                                    <input type="text" name="subject" class="form-control" required value="<?php echo htmlspecialchars($subject); ?>">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Pesan</label>
+                                <div id="editor-container" style="height: 300px;"><?php echo $body; ?></div>
+                                <textarea name="body" id="body-field" style="display:none;" required></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Lampiran</label>
+                                <div class="custom-file">
+                                    <input type="file" name="attachments[]" class="custom-file-input" id="attachments" multiple>
+                                    <label class="custom-file-label" for="attachments">Pilih file...</label>
+                                </div>
+                                <small class="form-text text-muted">Maksimal 50MB per file</small>
+                            </div>
+                        </div>
+                        
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-primary" id="submit-btn">
+                                <i class="fas fa-paper-plane"></i> Kirim
+                            </button>
+                            <a href="?page=inbox" class="btn btn-default">
+                                <i class="fas fa-times"></i> Batal
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 
 <script>
 (function() {
@@ -99,5 +145,12 @@ if ($replyEmail) {
             }
         });
     }
+    
+    // Update custom file input label
+    document.querySelector('.custom-file-input').addEventListener('change', function(e) {
+        var fileName = Array.from(e.target.files).map(f => f.name).join(', ');
+        var label = e.target.nextElementSibling;
+        label.textContent = fileName || 'Pilih file...';
+    });
 })();
 </script>

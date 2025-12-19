@@ -29,28 +29,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<div class="login-container">
-    <h2 style="text-align: center; margin-bottom: 2rem;">Login ke imel.id</h2>
-    
-    <?php if ($error): ?>
-        <div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div>
-    <?php endif; ?>
-    
-    <form method="POST">
-        <div class="form-group">
-            <label>Email</label>
-            <input type="email" name="email" required placeholder="email@imel.id">
+<div class="login-box" style="margin: auto;">
+    <div class="card card-outline card-primary">
+        <div class="card-header text-center">
+            <a href="?page=login" class="h1"><i class="fas fa-envelope-open-text"></i> <b>imel</b>.id</a>
         </div>
-        
-        <div class="form-group">
-            <label>Password</label>
-            <input type="password" name="password" required>
+        <div class="card-body">
+            <p class="login-box-msg">Masuk untuk memulai sesi Anda</p>
+
+            <?php if ($error): ?>
+                <div class="alert alert-danger alert-dismissible">
+                    <button type="button" class="close" data-dismiss="alert">&times;</button>
+                    <i class="icon fas fa-ban"></i> <?php echo htmlspecialchars($error); ?>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST">
+                <div class="input-group mb-3">
+                    <input type="email" name="email" class="form-control" placeholder="Email" required>
+                    <div class="input-group-append">
+                        <div class="input-group-text">
+                            <span class="fas fa-envelope"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group mb-3">
+                    <input type="password" name="password" class="form-control" placeholder="Password" required>
+                    <div class="input-group-append">
+                        <div class="input-group-text">
+                            <span class="fas fa-lock"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary btn-block">Masuk</button>
+                    </div>
+                </div>
+            </form>
+
+            <p class="mb-0 mt-3 text-center">
+                <a href="?page=register" class="text-center">Belum punya akun? Daftar di sini</a>
+            </p>
         </div>
-        
-        <button type="submit" class="btn" style="width: 100%;">Login</button>
-    </form>
-    
-    <p style="text-align: center; margin-top: 1rem;">
-        Belum punya akun? <a href="?page=register">Daftar di sini</a>
-    </p>
+    </div>
 </div>

@@ -2,12 +2,23 @@
 $user = getCurrentUser();
 ?>
 
-<div class="container">
-    <div style="max-width: 600px; margin: 2rem auto;">
-        <h2>⚙️ Pengaturan Akun</h2>
-        
+<!-- Content Header (Page header) -->
+<section class="content-header">
+    <div class="container-fluid">
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1><i class="fas fa-cog"></i> Pengaturan Akun</h1>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Main content -->
+<section class="content">
+    <div class="container-fluid">
         <?php if (isset($_SESSION['success'])): ?>
-            <div class="alert alert-success">
+            <div class="alert alert-success alert-dismissible fade show">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
                 <?php 
                 echo htmlspecialchars($_SESSION['success']); 
                 unset($_SESSION['success']);
@@ -16,7 +27,8 @@ $user = getCurrentUser();
         <?php endif; ?>
         
         <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-error">
+            <div class="alert alert-danger alert-dismissible fade show">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
                 <?php 
                 echo htmlspecialchars($_SESSION['error']); 
                 unset($_SESSION['error']);
@@ -24,43 +36,75 @@ $user = getCurrentUser();
             </div>
         <?php endif; ?>
         
-        <div style="background: white; padding: 2rem; border-radius: 8px; margin-top: 1rem;">
-            <h3>Informasi Akun</h3>
-            <div style="margin-top: 1rem;">
-                <div style="margin-bottom: 1rem;">
-                    <strong>Email:</strong> <?php echo htmlspecialchars($user['email']); ?>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card card-primary card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-user"></i> Informasi Akun</h3>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row">
+                            <dt class="col-sm-4"><i class="fas fa-envelope"></i> Email:</dt>
+                            <dd class="col-sm-8"><?php echo htmlspecialchars($user['email']); ?></dd>
+                            
+                            <dt class="col-sm-4"><i class="fas fa-id-card"></i> Nama Lengkap:</dt>
+                            <dd class="col-sm-8"><?php echo htmlspecialchars($user['full_name']); ?></dd>
+                        </dl>
+                    </div>
                 </div>
-                <div style="margin-bottom: 1rem;">
-                    <strong>Nama Lengkap:</strong> <?php echo htmlspecialchars($user['full_name']); ?>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card card-warning card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-lock"></i> Ganti Password</h3>
+                    </div>
+                    
+                    <form method="POST" action="?page=change-password">
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Password Saat Ini</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-key"></i></span>
+                                    </div>
+                                    <input type="password" name="current_password" class="form-control" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Password Baru</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                                    </div>
+                                    <input type="password" name="new_password" class="form-control" required minlength="6">
+                                </div>
+                                <small class="form-text text-muted">Minimal 6 karakter</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Konfirmasi Password Baru</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-check"></i></span>
+                                    </div>
+                                    <input type="password" name="confirm_password" class="form-control" required minlength="6">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-warning">
+                                <i class="fas fa-save"></i> Simpan Password
+                            </button>
+                            <a href="?page=inbox" class="btn btn-default">
+                                <i class="fas fa-times"></i> Batal
+                            </a>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
-        
-        <div style="background: white; padding: 2rem; border-radius: 8px; margin-top: 1rem;">
-            <h3>Ganti Password</h3>
-            
-            <form method="POST" action="?page=change-password" style="margin-top: 1rem;">
-                <div class="form-group">
-                    <label>Password Saat Ini</label>
-                    <input type="password" name="current_password" required>
-                </div>
-                
-                <div class="form-group">
-                    <label>Password Baru</label>
-                    <input type="password" name="new_password" required minlength="6">
-                    <small style="color: #7f8c8d;">Minimal 6 karakter</small>
-                </div>
-                
-                <div class="form-group">
-                    <label>Konfirmasi Password Baru</label>
-                    <input type="password" name="confirm_password" required minlength="6">
-                </div>
-                
-                <div style="display: flex; gap: 1rem;">
-                    <button type="submit" class="btn btn-success">💾 Simpan Password</button>
-                    <a href="?page=inbox" class="btn">Batal</a>
-                </div>
-            </form>
-        </div>
     </div>
-</div>
+</section>

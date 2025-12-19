@@ -81,257 +81,142 @@ if ($page === 'download' && isLoggedIn()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>imel.id - Layanan Email Custom</title>
+    
+    <!-- Google Font: Source Sans Pro -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- AdminLTE -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+    <!-- Quill Editor CSS -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f5f5f5;
-        }
-        
-        .header {
-            background: #2c3e50;
-            color: white;
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .header h1 {
-            font-size: 1.5rem;
-        }
-        
-        .header .user-info {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-        }
-        
-        .login-container, .register-container {
-            max-width: 400px;
-            margin: 4rem auto;
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .form-group {
-            margin-bottom: 1rem;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
-        
-        .form-group input, .form-group textarea {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
-        }
-        
-        .btn {
-            background: #3498db;
-            color: white;
-            padding: 0.75rem 1.5rem;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1rem;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn:hover {
-            background: #2980b9;
-        }
-        
-        .btn-danger {
-            background: #e74c3c;
-        }
-        
-        .btn-danger:hover {
-            background: #c0392b;
-        }
-        
-        .btn-success {
-            background: #27ae60;
-        }
-        
-        .btn-success:hover {
-            background: #229954;
-        }
-        
-        .mail-layout {
-            display: grid;
-            grid-template-columns: 250px 1fr;
-            gap: 1rem;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .sidebar {
-            background: #34495e;
-            color: white;
-            padding: 1rem;
-        }
-        
-        .sidebar a {
-            display: block;
-            color: white;
-            text-decoration: none;
-            padding: 0.75rem;
-            border-radius: 4px;
-            margin-bottom: 0.5rem;
-        }
-        
-        .sidebar a:hover, .sidebar a.active {
-            background: #2c3e50;
-        }
-        
-        .mail-content {
-            padding: 2rem;
-        }
-        
-        .email-list {
-            list-style: none;
-        }
-        
-        .email-item {
-            border-bottom: 1px solid #eee;
-            padding: 1rem;
-            cursor: pointer;
-        }
-        
-        .email-item:hover {
-            background: #f9f9f9;
-        }
-        
-        .email-item.unread {
+        .brand-link {
+            font-size: 1.25rem;
             font-weight: bold;
-            background: #ecf0f1;
         }
-        
-        .email-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 0.5rem;
+        .email-item {
+            cursor: pointer;
+            transition: all 0.3s;
         }
-        
-        .email-subject {
-            font-weight: 500;
+        .email-item:hover {
+            background-color: #f4f6f9;
         }
-        
-        .email-date {
-            color: #7f8c8d;
-            font-size: 0.9rem;
+        .email-item.unread {
+            background-color: #e3f2fd;
+            font-weight: 600;
         }
-        
-        .email-from {
-            color: #7f8c8d;
-            font-size: 0.9rem;
-        }
-        
-        .alert {
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-        }
-        
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .attachment-list {
-            margin-top: 1rem;
-            padding: 1rem;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-        
-        .attachment-item {
-            padding: 0.5rem;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .compose-form {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-        }
-        
-        .email-detail {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-        }
-        
-        .email-detail-header {
-            border-bottom: 2px solid #eee;
-            padding-bottom: 1rem;
-            margin-bottom: 1rem;
-        }
-        
-        .email-detail-body {
-            line-height: 1.6;
-        }
-        
-        /* Quill Editor Styles */
         #editor-container {
-            height: 400px;
+            min-height: 300px;
             background: white;
-        }
-        
-        .ql-editor {
-            min-height: 350px;
         }
     </style>
-    
-    <!-- Quill Editor CSS & JS -->
-    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 </head>
-<body>
+<body class="hold-transition sidebar-mini layout-fixed">
     <?php if (isLoggedIn()): ?>
-        <div class="header">
-            <h1>📧 imel.id</h1>
-            <div class="user-info">
-                <span><?php echo htmlspecialchars(getCurrentUser()['email']); ?></span>
-                <a href="?page=settings" class="btn">⚙️ Pengaturan</a>
-                <a href="?page=logout" class="btn btn-danger">Keluar</a>
+    <div class="wrapper">
+        <!-- Navbar -->
+        <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+            <!-- Left navbar links -->
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
+                </li>
+                <li class="nav-item d-none d-sm-inline-block">
+                    <a href="?page=inbox" class="nav-link">Home</a>
+                </li>
+            </ul>
+
+            <!-- Right navbar links -->
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="?page=compose">
+                        <i class="fas fa-envelope"></i> Tulis Email
+                    </a>
+                </li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link" data-toggle="dropdown" href="#">
+                        <i class="far fa-user"></i>
+                        <span class="d-none d-sm-inline ml-1"><?php echo htmlspecialchars(getCurrentUser()['full_name']); ?></span>
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-right">
+                        <a href="?page=settings" class="dropdown-item">
+                            <i class="fas fa-cog mr-2"></i> Pengaturan
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <a href="?page=logout" class="dropdown-item">
+                            <i class="fas fa-sign-out-alt mr-2"></i> Keluar
+                        </a>
+                    </div>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Sidebar Container -->
+        <aside class="main-sidebar sidebar-dark-primary elevation-4">
+            <!-- Brand Logo -->
+            <a href="?page=inbox" class="brand-link">
+                <i class="fas fa-envelope-open-text ml-3"></i>
+                <span class="brand-text font-weight-light ml-2">imel.id</span>
+            </a>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <!-- Sidebar user panel -->
+                <div class="user-panel mt-3 pb-3 mb-3 d-flex">
+                    <div class="image">
+                        <i class="fas fa-user-circle fa-2x text-white"></i>
+                    </div>
+                    <div class="info">
+                        <a href="#" class="d-block"><?php echo htmlspecialchars(getCurrentUser()['email']); ?></a>
+                    </div>
+                </div>
+
+                <!-- Sidebar Menu -->
+                <nav class="mt-2">
+                    <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
+                        <li class="nav-item">
+                            <a href="?page=compose" class="nav-link <?php echo $page === 'compose' ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-edit"></i>
+                                <p>Tulis Email</p>
+                            </a>
+                        </li>
+                        <li class="nav-header">FOLDER</li>
+                        <li class="nav-item">
+                            <a href="?page=inbox&folder=inbox" class="nav-link <?php echo ($page === 'inbox' && ($_GET['folder'] ?? 'inbox') === 'inbox') ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-inbox"></i>
+                                <p>Kotak Masuk</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="?page=inbox&folder=sent" class="nav-link <?php echo ($page === 'inbox' && ($_GET['folder'] ?? '') === 'sent') ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-paper-plane"></i>
+                                <p>Terkirim</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="?page=inbox&folder=drafts" class="nav-link <?php echo ($page === 'inbox' && ($_GET['folder'] ?? '') === 'drafts') ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-file-alt"></i>
+                                <p>Draft</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="?page=inbox&folder=trash" class="nav-link <?php echo ($page === 'inbox' && ($_GET['folder'] ?? '') === 'trash') ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-trash"></i>
+                                <p>Sampah</p>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
             </div>
-        </div>
+        </aside>
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+    <?php else: ?>
+        <!-- Login/Register page without sidebar -->
+        <div class="login-page" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;">
     <?php endif; ?>
     
     <?php
@@ -381,5 +266,30 @@ if ($page === 'download' && isLoggedIn()) {
     // Flush output buffer
     ob_end_flush();
     ?>
+    
+    <?php if (isLoggedIn()): ?>
+        </div><!-- /.content-wrapper -->
+        
+        <!-- Footer -->
+        <footer class="main-footer">
+            <strong>Copyright &copy; 2025 <a href="https://imel.id">imel.id</a>.</strong>
+            All rights reserved.
+            <div class="float-right d-none d-sm-inline-block">
+                <b>Version</b> 1.0.0
+            </div>
+        </footer>
+    </div><!-- /.wrapper -->
+    <?php else: ?>
+        </div><!-- /.login-page -->
+    <?php endif; ?>
+    
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap 4 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+    <!-- Quill Editor -->
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 </body>
 </html>
