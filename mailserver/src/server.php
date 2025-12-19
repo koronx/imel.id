@@ -68,6 +68,38 @@ $smtp_worker->onConnect = function($connection) {
 };
 
 $smtp_worker->onMessage = function($connection, $data) {
+    // If in DATA mode, process line by line
+    if (isset($connection->smtp_state) && $connection->smtp_state === 'DATA') {
+        // Split by lines if multiple lines received at once
+        $lines = explode("\r\n", $data);
+        
+        foreach ($lines as $line) {
+            if ($line === '.') {
+                // End of DATA
+                debugLog("[SMTP] End of DATA marker received, saving email", [
+                    'from' => $connection->smtp_from,
+                    'to' => $connection->smtp_to,
+                    'size' => strlen($connection->smtp_data)
+                ]);
+                saveEmail($connection);
+                $connection->send("250 OK: Message accepted\r\n");
+                
+                // Reset connection state
+                $connection->smtp_from = '';
+                $connection->smtp_to = [];
+                $connection->smtp_data = '';
+                $connection->smtp_state = 'HELO';
+                return;
+            } else {
+                // Accumulate data
+                $connection->smtp_data .= $line . "\r\n";
+            }
+        }
+        debugLog("[SMTP] Receiving data in DATA mode", "Total lines: " . count($lines) . ", Total size: " . strlen($connection->smtp_data));
+        return;
+    }
+    
+    // Normal command processing
     $data = trim($data);
     $command = strtoupper(substr($data, 0, 4));
     
@@ -128,30 +160,8 @@ $smtp_worker->onMessage = function($connection, $data) {
             break;
             
         default:
-            if ($connection->smtp_state === 'DATA') {
-                if ($data === '.') {
-                    // Save email to database
-                    debugLog("[SMTP] End of DATA marker received, saving email", [
-                        'from' => $connection->smtp_from,
-                        'to' => $connection->smtp_to,
-                        'size' => strlen($connection->smtp_data)
-                    ]);
-                    saveEmail($connection);
-                    $connection->send("250 OK: Message accepted\r\n");
-                    
-                    // Reset connection state
-                    $connection->smtp_from = '';
-                    $connection->smtp_to = [];
-                    $connection->smtp_data = '';
-                    $connection->smtp_state = 'HELO';
-                } else {
-                    debugLog("[SMTP] Receiving data in DATA mode", "Line length: " . strlen($data));
-                    $connection->smtp_data .= $data . "\r\n";
-                }
-            } else {
-                debugLog("[SMTP] Unrecognized command", ['command' => $data, 'state' => $connection->smtp_state]);
-                $connection->send("500 Command not recognized\r\n");
-            }
+            debugLog("[SMTP] Unrecognized command", ['command' => $data, 'state' => $connection->smtp_state]);
+            $connection->send("500 Command not recognized\r\n");
     }
 };
 
