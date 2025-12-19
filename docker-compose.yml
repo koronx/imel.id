@@ -98,13 +98,16 @@ services:
       MAIL_PORT: 25
       IMAP_HOST: mailserver
       IMAP_PORT: 143
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       - mailserver
       - database
+      - redis
     networks:
       - mailnet
     volumes:
-      - ./webmail/src:/var/www/html
+      - ./webmail/src:/var/www/html/src
       - ./storage:/storage
 
 networks:
