@@ -94,15 +94,32 @@ $emailContent .= $body;
 
 $db = getDB();
 
-// Check if recipient is internal (same domain @imel.id)
+// Build list of all external recipients
+$allRecipients = array_map('trim', explode(',', $to));
+if (!empty($cc)) {
+    $ccRecipients = array_map('trim', explode(',', $cc));
+    $allRecipients = array_merge($allRecipients, $ccRecipients);
+}
+
+// Count external recipients
+$externalCount = 0;
+foreach ($allRecipients as $recipient) {
+    if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
+        $externalCount++;
+    }
+}
+
+// Check if any recipient is internal (same domain @imel.id)
 $isInternal = str_ends_with($to, '@imel.id');
+$hasExternal = $externalCount > 0;
 
 // Check rate limit for external emails
-if (!$isInternal) {
+if ($hasExternal) {
     $rateLimit = checkExternalEmailRateLimit($user['id'], $db);
     
-    if (!$rateLimit['allowed']) {
-        $_SESSION['error'] = "Batas pengiriman email eksternal tercapai. Anda sudah mengirim {$rateLimit['current']} dari {$rateLimit['limit']} email per jam. Silakan coba lagi nanti.";
+    // Check if user has enough quota for all external recipients
+    if ($rateLimit['remaining'] < $externalCount) {
+        $_SESSION['error'] = "Batas pengiriman email eksternal tercapai. Anda membutuhkan {$externalCount} kuota tetapi hanya tersisa {$rateLimit['remaining']} dari {$rateLimit['limit']} email per jam. Silakan coba lagi nanti.";
         header('Location: ?page=compose');
         exit;
     }
@@ -252,6 +269,7 @@ if ($isInternal) {
         $emailJob = [
             'from' => $from,
             'to' => $to,
+            'cc' => $cc,
             'subject' => $subject,
             'body' => $body,  // HTML body
             'html_body' => '',  // Will be detected by worker
@@ -263,9 +281,13 @@ if ($isInternal) {
         $redis->rpush('email_queue', json_encode($emailJob));
         error_log("[WEBMAIL] Email pushed to queue successfully");
         
-        // Log external email for rate limiting
-        logExternalEmail($user['id'], $to, $db);
-        error_log("[WEBMAIL] External email logged for rate limiting");
+        // Log external email for rate limiting (all external recipients)
+        foreach ($allRecipients as $recipient) {
+            if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
+                logExternalEmail($user['id'], $recipient, $db);
+                error_log("[WEBMAIL] External email logged for rate limiting: " . $recipient);
+            }
+        }
         
         // Save to sent folder
         $stmt = $db->prepare("

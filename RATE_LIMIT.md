@@ -150,3 +150,6 @@ function checkExternalEmailRateLimit($userId, $db) {
 - Email internal tidak dibatasi
 - Rate limit dihitung per user
 - Window perhitungan adalah rolling 1 jam (bukan per jam kalender)
+- **CC dan BCC**: Setiap penerima eksternal (To, CC, BCC) dihitung terhadap rate limit
+  - Contoh: Email ke 1 To + 2 CC eksternal = 3 email dari kuota
+  - Sistem akan memeriksa apakah user memiliki cukup kuota untuk semua penerima eksternal

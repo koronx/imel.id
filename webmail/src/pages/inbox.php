@@ -90,7 +90,7 @@ $unreadCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
                     </label>
                     
                     <button onclick="refreshEmails()" class="btn" style="padding: 0.5rem 1rem;" title="Refresh">
-                        🔄 Refresh
+                        🔄 
                     </button>
                     
                     <div id="bulk-actions" style="display: none; gap: 0.5rem;">
@@ -99,7 +99,7 @@ $unreadCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
                         </button>
                     </div>
                     
-                    <form method="GET" style="display: flex; gap: 0.5rem; margin-left: auto; flex: 1; max-width: 400px;">
+                    <form method="GET" style="display: flex; gap: 0.5rem; flex: 1; max-width: 80%;">
                         <input type="hidden" name="page" value="inbox">
                         <input type="hidden" name="folder" value="<?php echo htmlspecialchars($folder); ?>">
                         <input type="text" 
@@ -107,7 +107,7 @@ $unreadCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
                                placeholder="🔍 Cari email..." 
                                value="<?php echo htmlspecialchars($search); ?>"
                                style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
-                        <button type="submit" class="btn" style="padding: 0.5rem 1rem;">Cari</button>
+                        <button type="submit" class="btn" style="padding: 0.5rem 1rem;">🔍</button>
                         <?php if (!empty($search)): ?>
                             <a href="?page=inbox&folder=<?php echo $folder; ?>" class="btn" style="padding: 0.5rem 1rem;">✕</a>
                         <?php endif; ?>

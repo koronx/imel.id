@@ -339,6 +339,12 @@ function buildEmailContent($emailJob) {
     // Headers
     $content .= "From: {$emailJob['from']}\r\n";
     $content .= "To: {$emailJob['to']}\r\n";
+    
+    // Add CC header if present
+    if (!empty($emailJob['cc'])) {
+        $content .= "Cc: {$emailJob['cc']}\r\n";
+    }
+    
     $content .= "Subject: {$emailJob['subject']}\r\n";
     $content .= "Date: " . date('r') . "\r\n";
     $content .= "Message-ID: " . generateMessageId() . "\r\n";
@@ -505,6 +511,7 @@ function processEmail($emailJob) {
         debugLog("[WORKER] Processing email", [
             'from' => $emailJob['from'],
             'to' => $emailJob['to'],
+            'cc' => $emailJob['cc'] ?? '',
             'subject' => $emailJob['subject']
         ]);
         
@@ -518,26 +525,79 @@ function processEmail($emailJob) {
             echo "[DEBUG] Email job does NOT have 'attachments' key\n";
         }
         
-        // Check if recipient is local domain
-        $domain = getDomainFromEmail($emailJob['to']);
+        // Build list of all recipients (to, cc, bcc)
+        $allRecipients = [];
         
-        if (!isLocalDomain($domain)) {
-            // External domain - relay via SMTP
-            debugLog("[WORKER] External domain detected", ['domain' => $domain]);
-            return sendExternalEmail($emailJob);
+        // Add TO recipients
+        if (!empty($emailJob['to'])) {
+            $toAddresses = array_map('trim', explode(',', $emailJob['to']));
+            $allRecipients = array_merge($allRecipients, $toAddresses);
         }
         
-        // Local domain - save to database
+        // Add CC recipients
+        if (!empty($emailJob['cc'])) {
+            $ccAddresses = array_map('trim', explode(',', $emailJob['cc']));
+            $allRecipients = array_merge($allRecipients, $ccAddresses);
+        }
+        
+        // Add BCC recipients
+        if (!empty($emailJob['bcc'])) {
+            $bccAddresses = array_map('trim', explode(',', $emailJob['bcc']));
+            $allRecipients = array_merge($allRecipients, $bccAddresses);
+        }
+        
+        debugLog("[WORKER] Total recipients", ['count' => count($allRecipients), 'recipients' => $allRecipients]);
+        
+        // Process each recipient
+        $successCount = 0;
+        foreach ($allRecipients as $recipient) {
+            if (empty($recipient)) continue;
+            
+            // Check if recipient is local domain
+            $domain = getDomainFromEmail($recipient);
+            
+            if (!isLocalDomain($domain)) {
+                // External domain - relay via SMTP
+                debugLog("[WORKER] External domain detected", ['domain' => $domain, 'recipient' => $recipient]);
+                
+                // Create email job for this recipient
+                $recipientJob = $emailJob;
+                $recipientJob['to'] = $recipient;
+                
+                if (sendExternalEmail($recipientJob)) {
+                    $successCount++;
+                }
+            } else {
+                // Local domain - save to database
+                if (saveLocalEmail($recipient, $emailJob)) {
+                    $successCount++;
+                }
+            }
+        }
+        
+        debugLog("[WORKER] Email processing completed", ['total' => count($allRecipients), 'success' => $successCount]);
+        return $successCount > 0;
+        
+    } catch (Exception $e) {
+        debugLog("[WORKER] Error processing email", $e->getMessage());
+        echo "Error processing email: " . $e->getMessage() . "\n";
+        return false;
+    }
+}
+
+function saveLocalEmail($recipient, $emailJob) {
+    try {
+function saveLocalEmail($recipient, $emailJob) {
+    try {
         $db = Database::getInstance()->getConnection();
         
         // Find user by email
         $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->execute([$emailJob['to']]);
+        $stmt->execute([$recipient]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($user) {
-            debugLog("[WORKER] User found", ['user_id' => $user['id'], 'email' => $emailJob['to']]);
-            $messageId = generateMessageId();
+            debugLog("[WORKER] User found", ['user_id' => $user['id'], 'email' => $recipient]);
             
             $stmt = $db->prepare("
                 INSERT INTO emails (message_id, user_id, from_email, to_email, subject, body, html_body, folder, received_at, size)
@@ -548,7 +608,7 @@ function processEmail($emailJob) {
                 $messageId,
                 $user['id'],
                 $emailJob['from'],
-                $emailJob['to'],
+                $recipient,
                 $emailJob['subject'],
                 $emailJob['body'],
                 $emailJob['html_body'],
@@ -562,15 +622,14 @@ function processEmail($emailJob) {
                 saveAttachments($db, $emailId, $emailJob['attachments']);
             }
             
-            debugLog("[WORKER] Email saved successfully", ['email_id' => $emailId, 'recipient' => $emailJob['to']]);
+            debugLog("[WORKER] Email saved successfully", ['email_id' => $emailId, 'recipient' => $recipient]);
             return true;
         } else {
-            debugLog("[WORKER] Local user not found", $emailJob['to']);
+            debugLog("[WORKER] Local user not found", $recipient);
             return false;
         }
     } catch (Exception $e) {
-        debugLog("[WORKER] Error processing email", $e->getMessage());
-        echo "Error processing email: " . $e->getMessage() . "\n";
+        debugLog("[WORKER] Error saving local email", $e->getMessage());
         return false;
     }
 }
