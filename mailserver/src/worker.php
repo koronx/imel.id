@@ -587,8 +587,6 @@ function processEmail($emailJob) {
 
 function saveLocalEmail($recipient, $emailJob) {
     try {
-function saveLocalEmail($recipient, $emailJob) {
-    try {
         $db = Database::getInstance()->getConnection();
         
         // Find user by email
@@ -598,6 +596,8 @@ function saveLocalEmail($recipient, $emailJob) {
         
         if ($user) {
             debugLog("[WORKER] User found", ['user_id' => $user['id'], 'email' => $recipient]);
+            
+            $messageId = generateMessageId();
             
             $stmt = $db->prepare("
                 INSERT INTO emails (message_id, user_id, from_email, to_email, subject, body, html_body, folder, received_at, size)
