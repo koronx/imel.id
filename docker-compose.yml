@@ -36,9 +36,9 @@ services:
       DB_USER: mailuser
       DB_PASSWORD: mailpassword
       DEBUG: "true"
-    depends_on:
-      database:
-        condition: service_healthy
+    # depends_on:
+    #   database:
+    #     condition: service_healthy
     networks:
       - mailnet
     volumes:
@@ -61,9 +61,9 @@ services:
       MAIL_PORT: 25
       IMAP_HOST: mailserver
       IMAP_PORT: 143
-    depends_on:
-      - mailserver
-      - database
+    # depends_on:
+    #   - mailserver
+    #   - database
     networks:
       - mailnet
     volumes:
