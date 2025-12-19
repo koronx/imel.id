@@ -107,14 +107,22 @@ $smtp_worker->onMessage = function($connection, $data) {
             
         case 'DATA':
             if ($connection->smtp_state === 'RCPT') {
+                debugLog("[SMTP] DATA command received, entering DATA mode");
                 $connection->send("354 Start mail input; end with <CRLF>.<CRLF>\r\n");
                 $connection->smtp_state = 'DATA';
             } else {
+                debugLog("[SMTP] DATA command in wrong state", $connection->smtp_state);
                 $connection->send("503 Bad sequence of commands\r\n");
             }
             break;
             
         case 'QUIT':
+            debugLog("[SMTP] QUIT received", [
+                'state' => $connection->smtp_state,
+                'from' => $connection->smtp_from,
+                'to' => $connection->smtp_to,
+                'data_size' => strlen($connection->smtp_data ?? '')
+            ]);
             $connection->send("221 Bye\r\n");
             $connection->close();
             break;
@@ -123,7 +131,7 @@ $smtp_worker->onMessage = function($connection, $data) {
             if ($connection->smtp_state === 'DATA') {
                 if ($data === '.') {
                     // Save email to database
-                    debugLog("[SMTP] End of DATA, saving email", [
+                    debugLog("[SMTP] End of DATA marker received, saving email", [
                         'from' => $connection->smtp_from,
                         'to' => $connection->smtp_to,
                         'size' => strlen($connection->smtp_data)
@@ -137,9 +145,11 @@ $smtp_worker->onMessage = function($connection, $data) {
                     $connection->smtp_data = '';
                     $connection->smtp_state = 'HELO';
                 } else {
+                    debugLog("[SMTP] Receiving data in DATA mode", "Line length: " . strlen($data));
                     $connection->smtp_data .= $data . "\r\n";
                 }
             } else {
+                debugLog("[SMTP] Unrecognized command", ['command' => $data, 'state' => $connection->smtp_state]);
                 $connection->send("500 Command not recognized\r\n");
             }
     }
