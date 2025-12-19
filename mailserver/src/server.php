@@ -234,7 +234,10 @@ function parseEmail($rawData) {
     $headers = [];
     $body = '';
     $inBody = false;
+    $contentType = '';
+    $boundary = '';
     
+    // Parse headers
     foreach ($lines as $line) {
         if (!$inBody) {
             if (empty(trim($line))) {
@@ -242,17 +245,73 @@ function parseEmail($rawData) {
                 continue;
             }
             
+            // Capture Subject
             if (preg_match('/^Subject:\s*(.+)$/i', $line, $matches)) {
                 $result['subject'] = trim($matches[1]);
             }
+            
+            // Capture Content-Type and boundary
+            if (preg_match('/^Content-Type:\s*(.+)$/i', $line, $matches)) {
+                $contentType = trim($matches[1]);
+                if (preg_match('/boundary="([^"]+)"/', $contentType, $boundaryMatch)) {
+                    $boundary = $boundaryMatch[1];
+                }
+            }
         } else {
-            $body .= $line . "\n";
+            $body .= $line . "\r\n";
         }
     }
     
-    $result['body'] = trim($body);
+    // If multipart, parse parts
+    if (!empty($boundary) && strpos($contentType, 'multipart') !== false) {
+        $parts = explode("--" . $boundary, $body);
+        
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if (empty($part) || $part === '--') continue;
+            
+            // Split part into headers and content
+            $partLines = explode("\r\n\r\n", $part, 2);
+            if (count($partLines) < 2) continue;
+            
+            $partHeaders = $partLines[0];
+            $partContent = $partLines[1];
+            
+            // Check content type of this part
+            if (preg_match('/Content-Type:\s*text\/plain/i', $partHeaders)) {
+                // Plain text part
+                $decoded = decodeContent($partContent, $partHeaders);
+                if (empty($result['body'])) {
+                    $result['body'] = $decoded;
+                }
+            } elseif (preg_match('/Content-Type:\s*text\/html/i', $partHeaders)) {
+                // HTML part
+                $decoded = decodeContent($partContent, $partHeaders);
+                if (empty($result['html_body'])) {
+                    $result['html_body'] = $decoded;
+                }
+            }
+        }
+    } else {
+        // Not multipart, just use body as is
+        $result['body'] = trim($body);
+    }
     
     return $result;
+}
+
+function decodeContent($content, $headers) {
+    // Check for quoted-printable encoding
+    if (preg_match('/Content-Transfer-Encoding:\s*quoted-printable/i', $headers)) {
+        return quoted_printable_decode($content);
+    }
+    
+    // Check for base64 encoding
+    if (preg_match('/Content-Transfer-Encoding:\s*base64/i', $headers)) {
+        return base64_decode($content);
+    }
+    
+    return $content;
 }
 
 function generateMessageId() {
