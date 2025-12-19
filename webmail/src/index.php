@@ -3,6 +3,19 @@
 ob_start();
 session_start();
 
+// Load Composer autoload - try multiple paths
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',
+    '/var/www/html/vendor/autoload.php',
+];
+
+foreach ($autoloadPaths as $path) {
+    if (file_exists($path)) {
+        require_once $path;
+        break;
+    }
+}
+
 // Database configuration
 $DB_HOST = getenv('DB_HOST') ?: 'database';
 $DB_PORT = getenv('DB_PORT') ?: '5432';

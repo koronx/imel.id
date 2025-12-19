@@ -1,0 +1,8 @@
+{
+    "name": "imel/webmail",
+    "description": "Webmail client for imel.id",
+    "require": {
+        "php": ">=8.2",
+        "predis/predis": "^2.2"
+    }
+}

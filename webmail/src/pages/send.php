@@ -155,32 +155,71 @@ if ($isInternal) {
         $_SESSION['error'] = 'Penerima tidak ditemukan';
     }
 } else {
-    // External email - send via SMTP
-    $mailHost = getenv('MAIL_HOST') ?: 'mailserver';
-    $mailPort = getenv('MAIL_PORT') ?: '25';
-    
-    $socket = @fsockopen($mailHost, $mailPort, $errno, $errstr, 10);
-    
-    if ($socket) {
-        fgets($socket); // Read greeting
+    // External email - send via queue
+    try {
+        // Log untuk debugging
+        error_log("[WEBMAIL] Sending external email to: " . $to);
         
-        fwrite($socket, "HELO imel.id\r\n");
-        fgets($socket);
+        // Connect to Redis
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
         
-        fwrite($socket, "MAIL FROM:<$from>\r\n");
-        fgets($socket);
+        error_log("[WEBMAIL] Connecting to Redis: $redisHost:$redisPort");
         
-        fwrite($socket, "RCPT TO:<$to>\r\n");
-        fgets($socket);
+        $redis = new \Predis\Client([
+            'scheme' => 'tcp',
+            'host' => $redisHost,
+            'port' => $redisPort,
+        ]);
         
-        fwrite($socket, "DATA\r\n");
-        fgets($socket);
+        error_log("[WEBMAIL] Redis connected successfully");
         
-        fwrite($socket, $emailContent . "\r\n.\r\n");
-        fgets($socket);
+        // Prepare attachments data with actual content
+        $attachmentsData = [];
+        if (!empty($attachmentPaths)) {
+            error_log("[WEBMAIL] Processing " . count($attachmentPaths) . " attachments");
+            foreach ($attachmentPaths as $attachment) {
+                $filePath = $attachment['path'];
+                error_log("[WEBMAIL] Reading attachment: $filePath");
+                
+                if (!file_exists($filePath)) {
+                    error_log("[WEBMAIL] ERROR: Attachment file not found: $filePath");
+                    continue;
+                }
+                
+                $content = file_get_contents($filePath);
+                if ($content === false) {
+                    error_log("[WEBMAIL] ERROR: Failed to read attachment: $filePath");
+                    continue;
+                }
+                
+                error_log("[WEBMAIL] Attachment read successfully, size: " . strlen($content));
+                
+                $attachmentsData[] = [
+                    'filename' => $attachment['filename'],
+                    'content_type' => $attachment['type'],
+                    'content' => base64_encode($content),  // Base64 encode for safe JSON transport
+                    'encoded' => true  // Flag to indicate already base64 encoded
+                ];
+            }
+            
+            error_log("[WEBMAIL] Total attachments prepared: " . count($attachmentsData));
+        }
         
-        fwrite($socket, "QUIT\r\n");
-        fclose($socket);
+        // Push to queue
+        $emailJob = [
+            'from' => $from,
+            'to' => $to,
+            'subject' => $subject,
+            'body' => $body,  // HTML body
+            'html_body' => '',  // Will be detected by worker
+            'attachments' => $attachmentsData,
+            'received_at' => date('Y-m-d H:i:s')
+        ];
+        
+        error_log("[WEBMAIL] Pushing email to queue");
+        $redis->rpush('email_queue', json_encode($emailJob));
+        error_log("[WEBMAIL] Email pushed to queue successfully");
         
         // Save to sent folder
         $stmt = $db->prepare("
@@ -221,8 +260,10 @@ if ($isInternal) {
         }
         
         $_SESSION['success'] = 'Email berhasil dikirim!';
-    } else {
-        $_SESSION['error'] = 'Gagal terhubung ke mail server';
+    } catch (Exception $e) {
+        error_log("[WEBMAIL] ERROR: " . $e->getMessage());
+        error_log("[WEBMAIL] Stack trace: " . $e->getTraceAsString());
+        $_SESSION['error'] = 'Gagal mengirim email: ' . $e->getMessage();
     }
 }
 

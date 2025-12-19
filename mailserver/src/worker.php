@@ -96,6 +96,21 @@ function generateMessageId() {
     return '<' . uniqid() . '@imel.id>';
 }
 
+function is_base64($string) {
+    // Check if string is valid base64
+    if (!is_string($string)) {
+        return false;
+    }
+    // Base64 encoded strings only contain these characters
+    if (preg_match('/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $string)) {
+        $decoded = base64_decode($string, true);
+        if ($decoded !== false && base64_encode($decoded) === $string) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function getDomainFromEmail($email) {
     $parts = explode('@', $email);
     return isset($parts[1]) ? strtolower($parts[1]) : '';
@@ -108,15 +123,33 @@ function isLocalDomain($domain) {
 
 function getMXRecords($domain) {
     $mxRecords = [];
+    $mxHosts = [];
+    $mxWeights = [];
+    
     if (getmxrr($domain, $mxHosts, $mxWeights)) {
         array_multisort($mxWeights, $mxHosts);
         foreach ($mxHosts as $index => $host) {
+            if (!empty($host)) {
+                $mxRecords[] = [
+                    'host' => $host,
+                    'priority' => $mxWeights[$index]
+                ];
+            }
+        }
+    }
+    
+    // If no MX records found or all empty, try A record (direct domain)
+    if (empty($mxRecords)) {
+        // Try to resolve domain directly
+        $ip = gethostbyname($domain);
+        if ($ip !== $domain) {
             $mxRecords[] = [
-                'host' => $host,
-                'priority' => $mxWeights[$index]
+                'host' => $domain,
+                'priority' => 10
             ];
         }
     }
+    
     return $mxRecords;
 }
 
@@ -184,6 +217,14 @@ function sendExternalEmail($emailJob) {
             
             // Build email content
             $emailContent = buildEmailContent($emailJob);
+            
+            // Debug: Print first 800 chars
+            if (!empty($emailJob['attachments'])) {
+                echo "[DEBUG EMAIL START]\n";
+                echo substr($emailContent, 0, 800);
+                echo "\n[DEBUG EMAIL END]\n";
+            }
+            
             fwrite($socket, $emailContent);
             fwrite($socket, "\r\n.\r\n");
             
@@ -259,6 +300,12 @@ function buildEmailContent($emailJob) {
     
     $plainText = $hasPlain ? $emailJob['body'] : ($hasHtml ? strip_tags($emailJob['html_body']) : 'No content');
     
+    // Debug: Check attachments
+    if ($hasAttachments) {
+        echo "[ATTACH DEBUG] Has " . count($emailJob['attachments']) . " attachments\n";
+        echo "[ATTACH DEBUG] First attachment: " . json_encode($emailJob['attachments'][0]) . "\n";
+    }
+    
     if ($hasAttachments) {
         // Multipart/mixed for attachments
         $boundary = uniqid('boundary_');
@@ -271,27 +318,49 @@ function buildEmailContent($emailJob) {
             $content .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n";
             
             $content .= "--{$altBoundary}\r\n";
-            $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-            $content .= $plainText . "\r\n\r\n";
+            $content .= "Content-Type: text/plain; charset=utf-8\r\n";
+            $content .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+            $content .= $plainText . "\r\n";
             
             $content .= "--{$altBoundary}\r\n";
-            $content .= "Content-Type: text/html; charset=utf-8\r\n\r\n";
-            $content .= $emailJob['html_body'] . "\r\n\r\n";
+            $content .= "Content-Type: text/html; charset=utf-8\r\n";
+            $content .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+            $content .= $emailJob['html_body'] . "\r\n";
             
             $content .= "--{$altBoundary}--\r\n";
         } else {
             $content .= "--{$boundary}\r\n";
-            $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-            $content .= $plainText . "\r\n\r\n";
+            $content .= "Content-Type: text/plain; charset=utf-8\r\n";
+            $content .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+            $content .= $plainText . "\r\n";
         }
         
         // Attachments
         foreach ($emailJob['attachments'] as $attachment) {
             $content .= "--{$boundary}\r\n";
-            $content .= "Content-Type: {$attachment['content_type']}; name=\"{$attachment['filename']}\"\r\n";
-            $content .= "Content-Disposition: attachment; filename=\"{$attachment['filename']}\"\r\n";
+            
+            // Set appropriate Content-Type with name parameter
+            $contentType = $attachment['content_type'];
+            $filename = $attachment['filename'];
+            
+            $content .= "Content-Type: {$contentType};\r\n";
+            $content .= " name=\"{$filename}\"\r\n";
+            $content .= "Content-Disposition: attachment;\r\n";
+            $content .= " filename=\"{$filename}\"\r\n";
             $content .= "Content-Transfer-Encoding: base64\r\n\r\n";
-            $content .= chunk_split(base64_encode($attachment['content'])) . "\r\n";
+            
+            // Check if content is already base64 encoded (check for 'encoded' flag)
+            $attachmentContent = $attachment['content'];
+            if (empty($attachment['encoded'])) {
+                // Not encoded yet, encode it
+                $attachmentContent = base64_encode($attachmentContent);
+            }
+            
+            // Chunk the base64 content into 76 character lines
+            $chunked = chunk_split($attachmentContent, 76, "\r\n");
+            // Remove trailing CRLF that chunk_split adds
+            $chunked = rtrim($chunked);
+            $content .= $chunked . "\r\n";
         }
         
         $content .= "--{$boundary}--\r\n";
@@ -321,6 +390,12 @@ function buildEmailContent($emailJob) {
         'has_attachments' => $hasAttachments,
         'plain_length' => strlen($plainText)
     ]);
+    
+    // Debug: Log a sample of the email content
+    if ($hasAttachments) {
+        $contentPreview = substr($content, 0, 500);
+        debugLog("[WORKER] Email content preview (first 500 chars)", $contentPreview);
+    }
     
     return $content;
 }
@@ -361,6 +436,16 @@ function processEmail($emailJob) {
             'to' => $emailJob['to'],
             'subject' => $emailJob['subject']
         ]);
+        
+        // Debug: Check if attachments exist in job
+        if (isset($emailJob['attachments'])) {
+            echo "[DEBUG] Email has 'attachments' key with " . count($emailJob['attachments']) . " items\n";
+            if (!empty($emailJob['attachments'])) {
+                echo "[DEBUG] First attachment keys: " . implode(', ', array_keys($emailJob['attachments'][0])) . "\n";
+            }
+        } else {
+            echo "[DEBUG] Email job does NOT have 'attachments' key\n";
+        }
         
         // Check if recipient is local domain
         $domain = getDomainFromEmail($emailJob['to']);
@@ -435,6 +520,15 @@ while (true) {
         $emailJob = $redis->pop('email_queue', 30);
         
         if ($emailJob) {
+            // Debug: Print raw JSON structure
+            echo "[DEBUG RAW] Email job keys: " . implode(', ', array_keys($emailJob)) . "\n";
+            if (isset($emailJob['attachments'])) {
+                echo "[DEBUG RAW] Attachments is: " . gettype($emailJob['attachments']) . "\n";
+                if (is_array($emailJob['attachments'])) {
+                    echo "[DEBUG RAW] Attachments count: " . count($emailJob['attachments']) . "\n";
+                }
+            }
+            
             $success = processEmail($emailJob);
             
             if ($success) {
