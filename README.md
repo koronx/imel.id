@@ -201,6 +201,11 @@ Sistem memiliki fitur rate limiting untuk pengiriman email ke domain eksternal (
 - **Limit**: 10 email per jam per user
 - **Scope**: Hanya berlaku untuk email eksternal
 - **Window**: Rolling 1 jam (bukan per jam kalender)
+- **Enforcement**: Diterapkan di webmail saat compose dan di mail worker saat processing
+
+Jika user mencoba mengirim lebih dari 10 email eksternal dalam 1 jam:
+- Di **webmail**: Email ditolak dengan pesan error
+- Di **worker**: Email tidak dikirim dan dicatat di log
 
 Untuk detail lengkap, lihat [RATE_LIMIT.md](RATE_LIMIT.md)
 

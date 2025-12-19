@@ -121,6 +121,54 @@ function isLocalDomain($domain) {
     return in_array(strtolower($domain), $localDomains);
 }
 
+function checkExternalEmailRateLimit($fromEmail, $db) {
+    // Get user_id from email
+    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+    $stmt->execute([$fromEmail]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user) {
+        // Not a local user, allow (external sender)
+        return ['allowed' => true, 'current' => 0, 'limit' => 10, 'remaining' => 10];
+    }
+    
+    // Check how many external emails sent in the last hour
+    $stmt = $db->prepare("
+        SELECT COUNT(*) as count 
+        FROM external_email_log 
+        WHERE user_id = ? 
+        AND sent_at > NOW() - INTERVAL '1 hour'
+    ");
+    $stmt->execute([$user['id']]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    $maxEmailsPerHour = 10;
+    $currentCount = $result['count'] ?? 0;
+    
+    return [
+        'allowed' => $currentCount < $maxEmailsPerHour,
+        'current' => $currentCount,
+        'limit' => $maxEmailsPerHour,
+        'remaining' => max(0, $maxEmailsPerHour - $currentCount)
+    ];
+}
+
+function logExternalEmailFromWorker($fromEmail, $toEmail, $db) {
+    // Get user_id from email
+    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+    $stmt->execute([$fromEmail]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($user) {
+        $stmt = $db->prepare("
+            INSERT INTO external_email_log (user_id, to_email, sent_at)
+            VALUES (?, ?, NOW())
+        ");
+        $stmt->execute([$user['id'], $toEmail]);
+        debugLog("[WORKER] External email logged for rate limiting", ['from' => $fromEmail, 'to' => $toEmail]);
+    }
+}
+
 function getMXRecords($domain) {
     $mxRecords = [];
     $mxHosts = [];
@@ -157,6 +205,25 @@ function sendExternalEmail($emailJob) {
     try {
         $domain = getDomainFromEmail($emailJob['to']);
         debugLog("[WORKER] Sending to external domain", $domain);
+        
+        // Check rate limit for local senders
+        $db = Database::getInstance()->getConnection();
+        $rateLimit = checkExternalEmailRateLimit($emailJob['from'], $db);
+        
+        if (!$rateLimit['allowed']) {
+            debugLog("[WORKER] Rate limit exceeded", [
+                'from' => $emailJob['from'],
+                'current' => $rateLimit['current'],
+                'limit' => $rateLimit['limit']
+            ]);
+            echo "[WORKER] Rate limit exceeded for {$emailJob['from']}: {$rateLimit['current']}/{$rateLimit['limit']} emails per hour\n";
+            return false;
+        }
+        
+        debugLog("[WORKER] Rate limit check passed", [
+            'from' => $emailJob['from'],
+            'remaining' => $rateLimit['remaining']
+        ]);
         
         // Get MX records
         $mxRecords = getMXRecords($domain);
@@ -237,6 +304,10 @@ function sendExternalEmail($emailJob) {
             
             if (preg_match('/^250/', $response)) {
                 debugLog("[WORKER] Email delivered successfully", $emailJob['to']);
+                
+                // Log external email for rate limiting
+                logExternalEmailFromWorker($emailJob['from'], $emailJob['to'], $db);
+                
                 return true;
             }
         }

@@ -3,6 +3,10 @@
 ## Deskripsi
 Fitur ini membatasi pengiriman email ke domain eksternal (non-@imel.id) maksimal 10 email per jam per user untuk mencegah penyalahgunaan sistem email.
 
+Rate limiting diterapkan di 2 tempat:
+1. **Webmail** - Saat user mengirim email via interface web
+2. **Mail Worker** - Saat worker memproses queue dan mengirim ke domain eksternal
+
 ## Implementasi
 
 ### 1. Database Schema
@@ -31,7 +35,20 @@ CREATE TABLE external_email_log (
 - Mencatat setiap pengiriman email eksternal ke database
 - Dipanggil setelah email berhasil dimasukkan ke queue
 
+#### Di Mail Worker (`mailserver/src/worker.php`)
+
+#### `checkExternalEmailRateLimit($fromEmail, $db)`
+- Memeriksa jumlah email eksternal yang dikirim dari email tertentu dalam 1 jam terakhir
+- Jika pengirim bukan user lokal, izinkan (untuk email masuk dari luar)
+- Mengembalikan array dengan informasi yang sama seperti fungsi webmail
+
+#### `logExternalEmailFromWorker($fromEmail, $toEmail, $db)`
+- Mencatat setiap pengiriman email eksternal yang berhasil
+- Dipanggil setelah email berhasil dikirim via SMTP
+
 ### 3. Cara Kerja
+
+#### Di Webmail (webmail/src/pages/send.php)
 1. Ketika user mengirim email, sistem mengecek apakah tujuan adalah domain internal (@imel.id) atau eksternal
 2. Untuk email eksternal, sistem memeriksa rate limit dengan query:
    ```sql
@@ -39,7 +56,13 @@ CREATE TABLE external_email_log (
    WHERE user_id = ? AND sent_at > NOW() - INTERVAL '1 hour'
    ```
 3. Jika sudah mencapai batas 10 email per jam, email ditolak dengan pesan error
-4. Jika masih di bawah batas, email dikirim dan dicatat ke `external_email_log`
+4. Jika masih di bawah batas, email dimasukkan ke queue dan dicatat ke `external_email_log`
+
+#### Di Mail Worker (mailserver/src/worker.php)
+1. Worker mengambil email dari queue Redis
+2. Jika tujuan adalah domain eksternal, worker memeriksa rate limit pengirim
+3. Jika rate limit tercapai, email tidak dikirim dan dicatat di log
+4. Jika masih di bawah batas, email dikirim via SMTP dan dicatat ke `external_email_log`
 
 ### 4. Pesan Error
 Ketika batas tercapai, user akan menerima pesan:
