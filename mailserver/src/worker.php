@@ -237,20 +237,23 @@ function buildEmailContent($emailJob) {
     $hasHtml = !empty($emailJob['html_body']);
     $hasPlain = !empty($emailJob['body']);
     
+    // Ensure we always have plain text
+    $plainText = $hasPlain ? $emailJob['body'] : ($hasHtml ? strip_tags($emailJob['html_body']) : 'No content');
+    
     if ($hasAttachments) {
         // Multipart/mixed for attachments
         $boundary = uniqid('boundary_');
         $content .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n\r\n";
         
         // Text part
-        if ($hasPlain && $hasHtml) {
+        if ($hasHtml) {
             $altBoundary = uniqid('alt_boundary_');
             $content .= "--{$boundary}\r\n";
             $content .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n";
             
             $content .= "--{$altBoundary}\r\n";
             $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-            $content .= $emailJob['body'] . "\r\n\r\n";
+            $content .= $plainText . "\r\n\r\n";
             
             $content .= "--{$altBoundary}\r\n";
             $content .= "Content-Type: text/html; charset=utf-8\r\n\r\n";
@@ -260,7 +263,7 @@ function buildEmailContent($emailJob) {
         } else {
             $content .= "--{$boundary}\r\n";
             $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-            $content .= ($hasPlain ? $emailJob['body'] : strip_tags($emailJob['html_body'])) . "\r\n\r\n";
+            $content .= $plainText . "\r\n\r\n";
         }
         
         // Attachments
@@ -273,14 +276,14 @@ function buildEmailContent($emailJob) {
         }
         
         $content .= "--{$boundary}--\r\n";
-    } elseif ($hasPlain && $hasHtml) {
-        // Multipart/alternative
+    } elseif ($hasHtml) {
+        // Always use multipart/alternative if we have HTML
         $boundary = uniqid('boundary_');
         $content .= "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n\r\n";
         
         $content .= "--{$boundary}\r\n";
         $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-        $content .= $emailJob['body'] . "\r\n\r\n";
+        $content .= $plainText . "\r\n\r\n";
         
         $content .= "--{$boundary}\r\n";
         $content .= "Content-Type: text/html; charset=utf-8\r\n\r\n";
@@ -288,15 +291,17 @@ function buildEmailContent($emailJob) {
         
         $content .= "--{$boundary}--\r\n";
     } else {
-        // Simple text or HTML
-        if ($hasHtml) {
-            $content .= "Content-Type: text/html; charset=utf-8\r\n\r\n";
-            $content .= $emailJob['html_body'] . "\r\n";
-        } else {
-            $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-            $content .= $emailJob['body'] . "\r\n";
-        }
+        // Simple plain text only
+        $content .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
+        $content .= $plainText . "\r\n";
     }
+    
+    debugLog("[WORKER] Email content built", [
+        'has_plain' => $hasPlain,
+        'has_html' => $hasHtml,
+        'has_attachments' => $hasAttachments,
+        'plain_length' => strlen($plainText)
+    ]);
     
     return $content;
 }
