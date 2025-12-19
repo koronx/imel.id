@@ -1,0 +1,23 @@
+# Ignore Docker volumes
+db/data/
+
+# Ignore uploaded files
+storage/
+
+# Ignore composer vendor
+mailserver/vendor/
+webmail/vendor/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore logs
+*.log
