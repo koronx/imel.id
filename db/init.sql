@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- External email rate limiting table
+CREATE TABLE IF NOT EXISTS external_email_log (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    to_email VARCHAR(255) NOT NULL,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for better performance
 CREATE INDEX idx_emails_user_id ON emails(user_id);
 CREATE INDEX idx_emails_folder ON emails(folder);
@@ -48,6 +56,8 @@ CREATE INDEX idx_emails_received_at ON emails(received_at DESC);
 CREATE INDEX idx_emails_message_id ON emails(message_id);
 CREATE INDEX idx_attachments_email_id ON attachments(email_id);
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_external_email_log_user_id ON external_email_log(user_id);
+CREATE INDEX idx_external_email_log_sent_at ON external_email_log(sent_at);
 
 -- Insert default test user (password: password123)
 -- Password hash is bcrypt of "password123"

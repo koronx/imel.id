@@ -18,6 +18,7 @@ Aplikasi email custom dengan mailserver berbasis PHP Workerman dan webmail inter
 - **Attachments** - Support lampiran file (max 50MB)
 - **Folder Management** - Inbox, Sent, Drafts, Trash
 - **Email Reading** - Baca email dengan detail lengkap
+- **Rate Limiting** - Batasi pengiriman email eksternal (10 email/jam per user)
 
 ## 📋 Requirement
 
@@ -191,6 +192,35 @@ docker-compose down -v
 - Session-based authentication
 - Input validation untuk mencegah SQL injection
 - File upload size limit (50MB)
+- **Rate limiting**: Email eksternal dibatasi 10 email/jam per user untuk mencegah spam
+
+## 🚦 Rate Limiting
+
+Sistem memiliki fitur rate limiting untuk pengiriman email ke domain eksternal (non @imel.id):
+
+- **Limit**: 10 email per jam per user
+- **Scope**: Hanya berlaku untuk email eksternal
+- **Window**: Rolling 1 jam (bukan per jam kalender)
+
+Untuk detail lengkap, lihat [RATE_LIMIT.md](RATE_LIMIT.md)
+
+### Testing Rate Limit
+```bash
+# Check rate limit status
+./test_rate_limit.sh check admin@imel.id
+
+# View recent external emails
+./test_rate_limit.sh recent
+
+# Simulate sending email (for testing)
+./test_rate_limit.sh simulate admin@imel.id test@gmail.com
+
+# Clear rate limit (for testing)
+./test_rate_limit.sh clear admin@imel.id
+
+# Run automatic test
+./test_rate_limit.sh test
+```
 
 ## 📄 License
 

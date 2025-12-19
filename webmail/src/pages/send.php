@@ -1,6 +1,37 @@
 <?php
 $user = getCurrentUser();
 
+// Rate limiting functions
+function checkExternalEmailRateLimit($userId, $db) {
+    // Check how many external emails sent in the last hour
+    $stmt = $db->prepare("
+        SELECT COUNT(*) as count 
+        FROM external_email_log 
+        WHERE user_id = ? 
+        AND sent_at > NOW() - INTERVAL '1 hour'
+    ");
+    $stmt->execute([$userId]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    $maxEmailsPerHour = 10;
+    $currentCount = $result['count'] ?? 0;
+    
+    return [
+        'allowed' => $currentCount < $maxEmailsPerHour,
+        'current' => $currentCount,
+        'limit' => $maxEmailsPerHour,
+        'remaining' => max(0, $maxEmailsPerHour - $currentCount)
+    ];
+}
+
+function logExternalEmail($userId, $toEmail, $db) {
+    $stmt = $db->prepare("
+        INSERT INTO external_email_log (user_id, to_email, sent_at)
+        VALUES (?, ?, NOW())
+    ");
+    $stmt->execute([$userId, $toEmail]);
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: ?page=inbox');
     exit;
@@ -65,6 +96,17 @@ $db = getDB();
 
 // Check if recipient is internal (same domain @imel.id)
 $isInternal = str_ends_with($to, '@imel.id');
+
+// Check rate limit for external emails
+if (!$isInternal) {
+    $rateLimit = checkExternalEmailRateLimit($user['id'], $db);
+    
+    if (!$rateLimit['allowed']) {
+        $_SESSION['error'] = "Batas pengiriman email eksternal tercapai. Anda sudah mengirim {$rateLimit['current']} dari {$rateLimit['limit']} email per jam. Silakan coba lagi nanti.";
+        header('Location: ?page=compose');
+        exit;
+    }
+}
 
 if ($isInternal) {
     // Internal email - save directly to database
@@ -220,6 +262,10 @@ if ($isInternal) {
         error_log("[WEBMAIL] Pushing email to queue");
         $redis->rpush('email_queue', json_encode($emailJob));
         error_log("[WEBMAIL] Email pushed to queue successfully");
+        
+        // Log external email for rate limiting
+        logExternalEmail($user['id'], $to, $db);
+        error_log("[WEBMAIL] External email logged for rate limiting");
         
         // Save to sent folder
         $stmt = $db->prepare("
