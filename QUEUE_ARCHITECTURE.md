@@ -2,10 +2,13 @@
 
 ## Arsitektur
 
-Sistem email server menggunakan Redis queue untuk memproses email secara asynchronous dengan multiple workers.
+Sistem email server menggunakan Redis queue untuk memproses email secara asynchronous dengan multiple workers dan SMTP relay untuk external domains.
 
 ```
-Email Masuk → SMTP Server → Redis Queue → Multiple Workers → PostgreSQL Database
+Email Masuk → SMTP Server → Redis Queue → Multiple Workers → {
+    Local Domain (imel.id) → PostgreSQL Database
+    External Domain → SMTP Relay → Destination Server
+}
 ```
 
 ## Komponen
@@ -21,24 +24,48 @@ Email Masuk → SMTP Server → Redis Queue → Multiple Workers → PostgreSQL 
 - Queue name: `email_queue`
 - Persistent storage dengan AOF (Append Only File)
 
-### 3. **Mail Workers** (3 replicas)
+### 3. **Mail Workers** (scalable replicas)
 - Multiple workers untuk memproses email secara paralel
 - Blocking pop dari Redis queue (BLPOP dengan timeout 30s)
-- Simpan email ke PostgreSQL
-- Simpan attachments ke file storage
+- **Routing Logic**:
+  - **Local domain** (imel.id): Simpan ke PostgreSQL + file storage
+  - **External domain**: Relay via SMTP ke MX server tujuan
 - Auto-restart jika crash
 
 ### 4. **Database** (maildb)
-- PostgreSQL untuk menyimpan email dan metadata
+- PostgreSQL untuk menyimpan email lokal dan metadata
 - Tables: users, emails, attachments
+
+## Email Routing
+
+### Local Domain (imel.id)
+1. Worker cek domain recipient
+2. Jika `@imel.id`, cari user di database
+3. Simpan email ke tabel `emails`
+4. Simpan attachments ke `/storage/attachments`
+
+### External Domain (koronx.com, gmail.com, dll)
+1. Worker cek domain recipient
+2. Jika bukan `@imel.id`, lookup MX records domain tujuan
+3. Connect ke MX server dengan prioritas tertinggi
+4. Kirim email via SMTP protocol:
+   - EHLO imel.id
+   - MAIL FROM
+   - RCPT TO
+   - DATA
+   - Build MIME email (multipart jika ada attachment)
+   - QUIT
+5. Retry dengan MX server berikutnya jika gagal
 
 ## Keuntungan
 
 ✅ **Scalability**: Bisa menambah/mengurangi jumlah workers sesuai load
 ✅ **Reliability**: Email tidak hilang jika worker crash (masih di queue)
 ✅ **Performance**: SMTP server response cepat, tidak blocking
+✅ **Email Relay**: Bisa kirim ke external domains (Gmail, Outlook, dll)
 ✅ **Monitoring**: Bisa monitor queue size di Redis
 ✅ **Load Distribution**: Workers otomatis ambil job dari queue
+✅ **Fault Tolerance**: Retry dengan MX server lain jika gagal
 
 ## Monitoring
 
