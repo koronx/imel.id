@@ -4,6 +4,7 @@
     "require": {
         "php": ">=8.0",
         "workerman/workerman": "^4.1",
+        "predis/predis": "^2.0",
         "ext-pdo": "*",
         "ext-pdo_pgsql": "*",
         "ext-pcntl": "*",

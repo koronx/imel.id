@@ -19,6 +19,17 @@ services:
     #   timeout: 5s
     #   retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: mailredis
+    ports:
+      - "6379:6379"
+    networks:
+      - mailnet
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
   mailserver:
     build:
       context: ./mailserver
@@ -35,9 +46,36 @@ services:
       DB_NAME: maildb
       DB_USER: mailuser
       DB_PASSWORD: mailpassword
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       DEBUG: "true"
     depends_on:
       - database
+      - redis
+    networks:
+      - mailnet
+    volumes:
+      - ./storage:/storage
+
+  mail-worker:
+    build:
+      context: ./mailserver
+      dockerfile: Dockerfile
+    command: php /app/worker.php
+    deploy:
+      replicas: 3
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: maildb
+      DB_USER: mailuser
+      DB_PASSWORD: mailpassword
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DEBUG: "true"
+    depends_on:
+      - database
+      - redis
     networks:
       - mailnet
     volumes:
@@ -72,3 +110,6 @@ services:
 networks:
   mailnet:
     driver: bridge
+
+volumes:
+  redis-data:

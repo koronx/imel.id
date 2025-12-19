@@ -2,6 +2,7 @@
 require_once __DIR__ . '/vendor/autoload.php';
 
 use Workerman\Worker;
+use Predis\Client as RedisClient;
 
 // Debug logging function
 function debugLog($message, $data = null) {
@@ -13,6 +14,52 @@ function debugLog($message, $data = null) {
             echo ": " . (is_string($data) ? $data : json_encode($data, JSON_PRETTY_PRINT));
         }
         echo "\n";
+    }
+}
+
+// Redis connection
+class RedisQueue {
+    private static $instance = null;
+    private $redis;
+
+    private function __construct() {
+        $host = getenv('REDIS_HOST') ?: 'redis';
+        $port = getenv('REDIS_PORT') ?: 6379;
+
+        try {
+            $this->redis = new RedisClient([
+                'scheme' => 'tcp',
+                'host' => $host,
+                'port' => $port,
+            ]);
+            debugLog("[REDIS] Connected to Redis", "$host:$port");
+        } catch (Exception $e) {
+            echo "Redis connection failed: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    }
+
+    public static function getInstance() {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    public function push($queue, $data) {
+        return $this->redis->rpush($queue, json_encode($data));
+    }
+
+    public function pop($queue, $timeout = 0) {
+        $result = $this->redis->blpop($queue, $timeout);
+        if ($result) {
+            return json_decode($result[1], true);
+        }
+        return null;
+    }
+
+    public function queueSize($queue) {
+        return $this->redis->llen($queue);
     }
 }
 
@@ -167,7 +214,7 @@ $smtp_worker->onMessage = function($connection, $data) {
 
 function saveEmail($connection) {
     try {
-        $db = Database::getInstance()->getConnection();
+        $redis = RedisQueue::getInstance();
         
         // Parse email data
         $emailData = parseEmail($connection->smtp_data);
@@ -176,49 +223,26 @@ function saveEmail($connection) {
             'body_length' => strlen($emailData['body'] ?? '')
         ]);
         
-        // Save email for each recipient
+        // Push email to Redis queue for each recipient
         foreach ($connection->smtp_to as $recipient) {
-            debugLog("[SMTP] Looking up recipient", $recipient);
-            // Find user by email
-            $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
-            $stmt->execute([$recipient]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            $emailJob = [
+                'from' => $connection->smtp_from,
+                'to' => $recipient,
+                'subject' => $emailData['subject'] ?? '',
+                'body' => $emailData['body'] ?? '',
+                'html_body' => $emailData['html_body'] ?? '',
+                'attachments' => $emailData['attachments'] ?? [],
+                'raw_data' => $connection->smtp_data,
+                'size' => strlen($connection->smtp_data),
+                'received_at' => date('Y-m-d H:i:s')
+            ];
             
-            if ($user) {
-                debugLog("[SMTP] User found", ['user_id' => $user['id'], 'email' => $recipient]);
-                $messageId = generateMessageId();
-                
-                $stmt = $db->prepare("
-                    INSERT INTO emails (message_id, user_id, from_email, to_email, subject, body, html_body, folder, received_at, size)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'inbox', NOW(), ?)
-                ");
-                
-                $stmt->execute([
-                    $messageId,
-                    $user['id'],
-                    $connection->smtp_from,
-                    $recipient,
-                    $emailData['subject'] ?? '',
-                    $emailData['body'] ?? '',
-                    $emailData['html_body'] ?? '',
-                    strlen($connection->smtp_data)
-                ]);
-                
-                $emailId = $db->lastInsertId();
-                
-                // Save attachments if any
-                if (!empty($emailData['attachments'])) {
-                    saveAttachments($db, $emailId, $emailData['attachments']);
-                }
-                
-                debugLog("[SMTP] Email saved successfully", ['email_id' => $emailId, 'recipient' => $recipient]);
-            } else {
-                debugLog("[SMTP] User not found", $recipient);
-            }
+            $redis->push('email_queue', $emailJob);
+            debugLog("[SMTP] Email pushed to queue", ['recipient' => $recipient, 'queue_size' => $redis->queueSize('email_queue')]);
         }
     } catch (Exception $e) {
-        debugLog("[SMTP] Error saving email", $e->getMessage());
-        echo "Error saving email: " . $e->getMessage() . "\n";
+        debugLog("[SMTP] Error queuing email", $e->getMessage());
+        echo "Error queuing email: " . $e->getMessage() . "\n";
     }
 }
 
