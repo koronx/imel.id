@@ -293,8 +293,39 @@ function parseEmail($rawData) {
             
             debugLog("[PARSER] Part headers", substr($partHeaders, 0, 200));
             
+            // Check if this part is nested multipart/alternative
+            if (preg_match('/Content-Type:\s*multipart\/alternative.*boundary="([^"]+)"/i', $partHeaders, $nestedBoundaryMatch)) {
+                debugLog("[PARSER] Found nested multipart/alternative");
+                $nestedBoundary = $nestedBoundaryMatch[1];
+                $nestedParts = explode("--" . $nestedBoundary, $partContent);
+                
+                foreach ($nestedParts as $nestedPart) {
+                    $nestedPart = trim($nestedPart);
+                    if (empty($nestedPart) || $nestedPart === '--') continue;
+                    
+                    $nestedPartLines = explode("\r\n\r\n", $nestedPart, 2);
+                    if (count($nestedPartLines) < 2) continue;
+                    
+                    $nestedPartHeaders = $nestedPartLines[0];
+                    $nestedPartContent = $nestedPartLines[1];
+                    
+                    if (preg_match('/Content-Type:\s*text\/plain/i', $nestedPartHeaders)) {
+                        debugLog("[PARSER] Found text/plain in nested part");
+                        $decoded = decodeContent($nestedPartContent, $nestedPartHeaders);
+                        if (empty($result['body'])) {
+                            $result['body'] = $decoded;
+                        }
+                    } elseif (preg_match('/Content-Type:\s*text\/html/i', $nestedPartHeaders)) {
+                        debugLog("[PARSER] Found text/html in nested part");
+                        $decoded = decodeContent($nestedPartContent, $nestedPartHeaders);
+                        if (empty($result['html_body'])) {
+                            $result['html_body'] = $decoded;
+                        }
+                    }
+                }
+            }
             // Check content type of this part
-            if (preg_match('/Content-Type:\s*text\/plain/i', $partHeaders)) {
+            elseif (preg_match('/Content-Type:\s*text\/plain/i', $partHeaders)) {
                 // Plain text part
                 debugLog("[PARSER] Found text/plain part");
                 $decoded = decodeContent($partContent, $partHeaders);
@@ -309,6 +340,27 @@ function parseEmail($rawData) {
                 if (empty($result['html_body'])) {
                     $result['html_body'] = $decoded;
                     debugLog("[PARSER] Set HTML body", substr($decoded, 0, 100));
+                }
+            }
+            // Check if this is an attachment
+            elseif (preg_match('/Content-Type:\s*([^;\r\n]+)/i', $partHeaders, $contentTypeMatch)) {
+                $attachmentType = trim($contentTypeMatch[1]);
+                
+                // Check for filename in Content-Disposition or Content-Type
+                $filename = '';
+                if (preg_match('/filename="([^"]+)"/i', $partHeaders, $filenameMatch)) {
+                    $filename = $filenameMatch[1];
+                } elseif (preg_match('/name="([^"]+)"/i', $partHeaders, $nameMatch)) {
+                    $filename = $nameMatch[1];
+                }
+                
+                if (!empty($filename)) {
+                    debugLog("[PARSER] Found attachment", ['filename' => $filename, 'type' => $attachmentType]);
+                    $result['attachments'][] = [
+                        'filename' => $filename,
+                        'content_type' => $attachmentType,
+                        'content' => decodeContent($partContent, $partHeaders)
+                    ];
                 }
             }
         }
