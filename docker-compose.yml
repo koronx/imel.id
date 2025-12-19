@@ -37,7 +37,7 @@ services:
       DB_PASSWORD: mailpassword
       DEBUG: "true"
     depends_on:
-      database:
+      - database
     networks:
       - mailnet
     volumes:
