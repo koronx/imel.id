@@ -61,6 +61,19 @@ function getCurrentUser() {
     return $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
+// Generate session token for API calls
+function getSessionToken() {
+    if (!isLoggedIn()) {
+        return null;
+    }
+    
+    if (!isset($_SESSION['api_token'])) {
+        $_SESSION['api_token'] = base64_encode(random_bytes(32) . '|' . $_SESSION['user_id'] . '|' . time());
+    }
+    
+    return $_SESSION['api_token'];
+}
+
 // Routing
 $page = $_GET['page'] ?? 'login';
 

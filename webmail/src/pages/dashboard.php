@@ -292,7 +292,7 @@ foreach ($hourlyStats as $stat) {
             <div class="col-md-12">
                 <div class="card card-primary card-outline">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-hdd"></i> Manajemen Kuota User</h3>
+                        <h3 class="card-title"><i class="fas fa-users-cog"></i> Manajemen User</h3>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
@@ -304,7 +304,7 @@ foreach ($hourlyStats as $stat) {
                                         <th>Kuota</th>
                                         <th>Terpakai</th>
                                         <th style="width: 200px;">Progress</th>
-                                        <th style="width: 150px;">Aksi</th>
+                                        <th style="width: 200px;">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -314,6 +314,7 @@ foreach ($hourlyStats as $stat) {
                                         $usedGB = round($u['quota_used'] / (1024 * 1024 * 1024), 2);
                                         $percent = $u['usage_percent'] ?? 0;
                                         $progressColor = $percent > 90 ? 'danger' : ($percent > 75 ? 'warning' : 'success');
+                                        $isAdmin = $u['email'] === 'admin@imel.id';
                                     ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($u['email']); ?></td>
@@ -334,9 +335,20 @@ foreach ($hourlyStats as $stat) {
                                         </td>
                                         <td>
                                             <button type="button" class="btn btn-sm btn-primary" 
-                                                    onclick="editQuota(<?php echo $u['id']; ?>, '<?php echo htmlspecialchars($u['email']); ?>', <?php echo $quotaGB; ?>)">
-                                                <i class="fas fa-edit"></i> Edit
+                                                    onclick='editUser(<?php echo json_encode([
+                                                        "id" => $u["id"],
+                                                        "email" => $u["email"],
+                                                        "full_name" => $u["full_name"],
+                                                        "quota_gb" => $quotaGB
+                                                    ]); ?>)'>
+                                                <i class="fas fa-edit"></i>
                                             </button>
+                                            <?php if (!$isAdmin): ?>
+                                            <button type="button" class="btn btn-sm btn-danger" 
+                                                    onclick="deleteUser(<?php echo $u['id']; ?>, '<?php echo htmlspecialchars($u['email']); ?>')">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
@@ -509,8 +521,70 @@ foreach ($hourlyStats as $stat) {
     </div>
 </section>
 
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title"><i class="fas fa-user-edit"></i> Edit User</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm">
+                    <input type="hidden" id="edit_user_id">
+                    
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="text" class="form-control" id="edit_email" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Nama Lengkap</label>
+                        <input type="text" class="form-control" id="edit_full_name" placeholder="Masukkan nama lengkap">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Secondary Email (Opsional)</label>
+                        <input type="email" class="form-control" id="edit_secondary_email" placeholder="email@example.com">
+                        <small class="form-text text-muted">Kosongkan jika tidak ingin mengubah</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Password Baru (Opsional)</label>
+                        <input type="password" class="form-control" id="edit_password" placeholder="Kosongkan jika tidak ingin mengubah">
+                        <small class="form-text text-muted">Min. 8 karakter</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Kuota (GB)</label>
+                        <input type="number" class="form-control" id="edit_quota" step="0.1" min="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="edit_reset_quota">
+                            <label class="custom-control-label" for="edit_reset_quota">Reset penggunaan kuota ke 0</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">
+                    <i class="fas fa-save"></i> Simpan
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 <script>
+    // Store API token
+    const API_TOKEN = '<?php echo getSessionToken(); ?>';
+    
     const ctx = document.getElementById('emailChart').getContext('2d');
     const emailChart = new Chart(ctx, {
         type: 'line',
@@ -557,7 +631,115 @@ foreach ($hourlyStats as $stat) {
         }
     });
     
-    // Edit Quota Modal
+    // Edit User Modal
+    function editUser(userData) {
+        document.getElementById('edit_user_id').value = userData.id;
+        document.getElementById('edit_email').value = userData.email;
+        document.getElementById('edit_full_name').value = userData.full_name;
+        document.getElementById('edit_secondary_email').value = '';
+        document.getElementById('edit_password').value = '';
+        document.getElementById('edit_quota').value = userData.quota_gb;
+        document.getElementById('edit_reset_quota').checked = false;
+        
+        $('#editUserModal').modal('show');
+    }
+    
+    // Save User
+    async function saveUser() {
+        const userId = document.getElementById('edit_user_id').value;
+        const fullName = document.getElementById('edit_full_name').value.trim();
+        const secondaryEmail = document.getElementById('edit_secondary_email').value.trim();
+        const password = document.getElementById('edit_password').value;
+        const quotaGB = parseFloat(document.getElementById('edit_quota').value);
+        const resetQuota = document.getElementById('edit_reset_quota').checked;
+        
+        if (!fullName) {
+            alert('Nama lengkap harus diisi');
+            return;
+        }
+        
+        if (isNaN(quotaGB) || quotaGB < 0) {
+            alert('Kuota harus berupa angka positif');
+            return;
+        }
+        
+        if (password && password.length < 8) {
+            alert('Password minimal 8 karakter');
+            return;
+        }
+        
+        const data = {
+            user_id: parseInt(userId),
+            full_name: fullName,
+            quota_bytes: Math.round(quotaGB * 1024 * 1024 * 1024),
+            reset_quota: resetQuota
+        };
+        
+        if (secondaryEmail) {
+            data.secondary_email = secondaryEmail;
+        }
+        
+        if (password) {
+            data.password = password;
+        }
+        
+        try {
+            const response = await fetch('/api.php?action=admin_edit_user', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_TOKEN
+                },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                alert('User berhasil diupdate');
+                location.reload();
+            } else {
+                alert('Error: ' + result.message);
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+    
+    // Delete User
+    async function deleteUser(userId, email) {
+        if (!confirm(`PERINGATAN!\n\nAnda akan menghapus user: ${email}\n\nSemua email dari dan ke user ini akan diarsipkan dan user akan dihapus permanen.\n\nApakah Anda yakin?`)) {
+            return;
+        }
+        
+        if (!confirm(`Konfirmasi sekali lagi.\n\nHapus user ${email}?\n\nIni tidak dapat dibatalkan!`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api.php?action=admin_delete_user', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_TOKEN
+                },
+                body: JSON.stringify({ user_id: userId })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                alert('User berhasil dihapus dan email diarsipkan');
+                location.reload();
+            } else {
+                alert('Error: ' + result.message);
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+    
+    // Edit Quota (legacy - kept for backwards compatibility)
     function editQuota(userId, email, currentQuota) {
         const newQuota = prompt(`Edit kuota untuk ${email}\n\nKuota saat ini: ${currentQuota} GB\nMasukkan kuota baru (dalam GB):`, currentQuota);
         

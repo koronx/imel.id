@@ -562,4 +562,169 @@ if ($action === 'admin_update_quota') {
     }
 }
 
+if ($action === 'admin_edit_user') {
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    $input = getJsonInput();
+    $targetUserId = (int)($input['user_id'] ?? 0);
+    $fullName = $input['full_name'] ?? '';
+    $secondaryEmail = $input['secondary_email'] ?? null;
+    $password = $input['password'] ?? '';
+    $quotaBytes = isset($input['quota_bytes']) ? (int)$input['quota_bytes'] : null;
+    $resetQuota = $input['reset_quota'] ?? false;
+    
+    if (!$targetUserId) {
+        sendError('User ID harus diisi');
+    }
+    
+    // Build update query dynamically
+    $updates = [];
+    $params = [];
+    
+    if (!empty($fullName)) {
+        $updates[] = "full_name = ?";
+        $params[] = $fullName;
+    }
+    
+    if ($secondaryEmail !== null) {
+        $updates[] = "secondary_email = ?";
+        $params[] = $secondaryEmail ?: null;
+    }
+    
+    if (!empty($password)) {
+        $updates[] = "password = ?";
+        $params[] = password_hash($password, PASSWORD_DEFAULT);
+    }
+    
+    if ($quotaBytes !== null) {
+        $updates[] = "quota_bytes = ?";
+        $params[] = $quotaBytes;
+    }
+    
+    if ($resetQuota) {
+        $updates[] = "quota_used = 0";
+    }
+    
+    if (empty($updates)) {
+        sendError('Tidak ada data yang diupdate');
+    }
+    
+    // Add user_id to params
+    $params[] = $targetUserId;
+    
+    // Execute update
+    $sql = "UPDATE users SET " . implode(', ', $updates) . " WHERE id = ?";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    
+    if ($stmt->rowCount() > 0) {
+        sendSuccess([], 'User berhasil diupdate');
+    } else {
+        sendError('User tidak ditemukan atau tidak ada perubahan', 404);
+    }
+}
+
+if ($action === 'admin_delete_user') {
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    $input = getJsonInput();
+    $targetUserId = (int)($input['user_id'] ?? 0);
+    
+    if (!$targetUserId) {
+        sendError('User ID harus diisi');
+    }
+    
+    // Don't allow deleting admin user
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$targetUserId]);
+    $targetUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$targetUser) {
+        sendError('User tidak ditemukan', 404);
+    }
+    
+    if ($targetUser['email'] === 'admin@imel.id') {
+        sendError('Tidak dapat menghapus user admin');
+    }
+    
+    $db->beginTransaction();
+    try {
+        // Archive all emails from and to this user
+        // 1. Archive emails where user is the owner
+        $stmt = $db->prepare("
+            INSERT INTO archived_emails 
+            (original_email_id, message_id, user_id, user_email, from_email, to_email, cc, bcc, subject, body, html_body, is_read, is_starred, folder, received_at, sent_at, size, archived_reason)
+            SELECT id, message_id, user_id, ?, from_email, to_email, cc, bcc, subject, body, html_body, is_read, is_starred, folder, received_at, sent_at, size, 'user_deleted'
+            FROM emails
+            WHERE user_id = ?
+        ");
+        $stmt->execute([$targetUser['email'], $targetUserId]);
+        
+        // 2. Archive emails from this user (as sender)
+        $stmt = $db->prepare("
+            INSERT INTO archived_emails 
+            (original_email_id, message_id, user_id, user_email, from_email, to_email, cc, bcc, subject, body, html_body, is_read, is_starred, folder, received_at, sent_at, size, archived_reason)
+            SELECT e.id, e.message_id, e.user_id, ?, e.from_email, e.to_email, e.cc, e.bcc, e.subject, e.body, e.html_body, e.is_read, e.is_starred, e.folder, e.received_at, e.sent_at, e.size, 'sender_deleted'
+            FROM emails e
+            WHERE e.from_email = ?
+            AND NOT EXISTS (
+                SELECT 1 FROM archived_emails ae WHERE ae.original_email_id = e.id
+            )
+        ");
+        $stmt->execute([$targetUser['email'], $targetUser['email']]);
+        
+        // 3. Archive emails to this user (as recipient)
+        $stmt = $db->prepare("
+            INSERT INTO archived_emails 
+            (original_email_id, message_id, user_id, user_email, from_email, to_email, cc, bcc, subject, body, html_body, is_read, is_starred, folder, received_at, sent_at, size, archived_reason)
+            SELECT e.id, e.message_id, e.user_id, ?, e.from_email, e.to_email, e.cc, e.bcc, e.subject, e.body, e.html_body, e.is_read, e.is_starred, e.folder, e.received_at, e.sent_at, e.size, 'recipient_deleted'
+            FROM emails e
+            WHERE e.to_email = ?
+            AND NOT EXISTS (
+                SELECT 1 FROM archived_emails ae WHERE ae.original_email_id = e.id
+            )
+        ");
+        $stmt->execute([$targetUser['email'], $targetUser['email']]);
+        
+        // Archive attachments
+        $stmt = $db->prepare("
+            INSERT INTO archived_attachments 
+            (original_attachment_id, archived_email_id, email_id, filename, content_type, size, storage_path, created_at)
+            SELECT a.id, ae.id, a.email_id, a.filename, a.content_type, a.size, a.storage_path, a.created_at
+            FROM attachments a
+            JOIN emails e ON a.email_id = e.id
+            JOIN archived_emails ae ON e.id = ae.original_email_id
+            WHERE e.user_id = ? OR e.from_email = ? OR e.to_email = ?
+        ");
+        $stmt->execute([$targetUserId, $targetUser['email'], $targetUser['email']]);
+        
+        // Delete the user (CASCADE will delete emails and related data)
+        $stmt = $db->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->execute([$targetUserId]);
+        
+        $db->commit();
+        sendSuccess([], 'User berhasil dihapus dan email diarsipkan');
+    } catch (Exception $e) {
+        $db->rollBack();
+        error_log("[API] Delete user error: " . $e->getMessage());
+        sendError('Gagal menghapus user: ' . $e->getMessage());
+    }
+}
+
 sendError('Invalid action', 400);
