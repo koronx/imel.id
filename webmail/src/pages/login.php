@@ -30,9 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 
 <div class="login-box" style="margin: auto;">
-    <div class="card card-outline card-primary">
+    <div class="card card-outline card-primary" style="border-top-color: #dc143c;">
         <div class="card-header text-center">
-            <a href="?page=login" class="h1"><i class="fas fa-envelope-open-text"></i> <b>imel</b>.id</a>
+            <a href="?page=login" class="h1">
+                <img src="/assets/logo.png" alt="imel.id" style="width: 60px; height: 60px; vertical-align: middle;">
+                <b style="color: red;">imel.id</b>
+            </a>
         </div>
         <div class="card-body">
             <p class="login-box-msg">Masuk untuk memulai sesi Anda</p>

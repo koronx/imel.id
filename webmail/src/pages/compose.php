@@ -91,7 +91,7 @@ if ($replyEmail) {
                                     <input type="file" name="attachments[]" class="custom-file-input" id="attachments" multiple>
                                     <label class="custom-file-label" for="attachments">Pilih file...</label>
                                 </div>
-                                <small class="form-text text-muted">Maksimal 50MB per file</small>
+                                <small class="form-text text-muted">Maksimal 10MB per file</small>
                             </div>
                         </div>
                         

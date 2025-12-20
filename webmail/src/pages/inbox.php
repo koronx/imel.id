@@ -83,89 +83,93 @@ $unreadCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
             <div class="col-md-12">
                 <div class="card card-primary card-outline">
                     <div class="card-header">
-                        <div class="d-flex align-items-center">
-                            <div class="icheck-primary d-inline mr-2">
-                                <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
-                                <label for="select-all"></label>
-                            </div>
-                            
-                            <button onclick="refreshEmails()" class="btn btn-default btn-sm mr-2" title="Refresh">
-                                <i class="fas fa-sync-alt"></i>
-                            </button>
-                            
-                            <div id="bulk-actions" class="mr-2" style="display: none;">
-                                <button onclick="deleteSelected()" class="btn btn-danger btn-sm">
-                                    <i class="fas fa-trash"></i> Hapus (<span id="selected-count">0</span>)
-                                </button>
-                            </div>
-                            
-                            <form method="GET" class="form-inline ml-3">
-                                <input type="hidden" name="page" value="inbox">
-                                <input type="hidden" name="folder" value="<?php echo htmlspecialchars($folder); ?>">
-                                <div class="input-group input-group-sm">
-                                    <input type="text" 
-                                           name="search" 
-                                           class="form-control"
-                                           placeholder="Cari email..." 
-                                           value="<?php echo htmlspecialchars($search); ?>">
-                                    <div class="input-group-append">
-                                        <button type="submit" class="btn btn-default">
-                                            <i class="fas fa-search"></i>
-                                        </button>
-                                        <?php if (!empty($search)): ?>
-                                            <a href="?page=inbox&folder=<?php echo $folder; ?>" class="btn btn-default">
-                                                <i class="fas fa-times"></i>
-                                            </a>
-                                        <?php endif; ?>
-                                    </div>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <!-- Left side: checkbox, refresh, bulk actions -->
+                            <div class="d-flex align-items-center">
+                                <div class="icheck-primary d-inline mr-2">
+                                    <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
+                                    <label for="select-all"></label>
                                 </div>
-                            </form>
-                        </div>
-                        
-                        <div class="d-flex align-items-center">
-                            <span class="text-muted mr-3">
-                                <?php 
-                                $start = $totalEmails > 0 ? $offset + 1 : 0;
-                                $end = min($offset + $perPage, $totalEmails);
-                                echo "$start-$end dari $totalEmails";
-                                ?>
-                            </span>
-                            
-                            <div class="form-inline mr-2">
-                                <label class="mr-2">Tampilkan:</label>
-                                <select id="per-page" onchange="changePerPage(this.value)" class="form-control form-control-sm">
-                                    <option value="10" <?php echo $perPage == 10 ? 'selected' : ''; ?>>10</option>
-                                    <option value="25" <?php echo $perPage == 25 ? 'selected' : ''; ?>>25</option>
-                                    <option value="50" <?php echo $perPage == 50 ? 'selected' : ''; ?>>50</option>
-                                    <option value="100" <?php echo $perPage == 100 ? 'selected' : ''; ?>>100</option>
-                                </select>
+                                
+                                <button onclick="refreshEmails()" class="btn btn-default btn-sm mr-2" title="Refresh">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                                
+                                <div id="bulk-actions" class="mr-2" style="display: none;">
+                                    <button onclick="deleteSelected()" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash"></i> Hapus (<span id="selected-count">0</span>)
+                                    </button>
+                                </div>
                             </div>
                             
-                            <?php 
-                            $searchParam = !empty($search) ? '&search=' . urlencode($search) : '';
-                            ?>
-                            <div class="btn-group">
-                                <?php if ($currentPage > 1): ?>
-                                    <a href="?page=inbox&folder=<?php echo $folder; ?>&p=<?php echo $currentPage - 1; ?>&per_page=<?php echo $perPage . $searchParam; ?>" 
-                                       class="btn btn-default btn-sm" title="Sebelumnya">
-                                        <i class="fas fa-chevron-left"></i>
-                                    </a>
-                                <?php else: ?>
-                                    <button class="btn btn-default btn-sm" disabled>
-                                        <i class="fas fa-chevron-left"></i>
-                                    </button>
-                                <?php endif; ?>
+                            <!-- Right side: search, info, paging -->
+                            <div class="d-flex align-items-center">
+                                <form method="GET" class="form-inline mr-3">
+                                    <input type="hidden" name="page" value="inbox">
+                                    <input type="hidden" name="folder" value="<?php echo htmlspecialchars($folder); ?>">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" 
+                                               name="search" 
+                                               class="form-control"
+                                               placeholder="Cari email..." 
+                                               value="<?php echo htmlspecialchars($search); ?>">
+                                        <div class="input-group-append">
+                                            <button type="submit" class="btn btn-default">
+                                                <i class="fas fa-search"></i>
+                                            </button>
+                                            <?php if (!empty($search)): ?>
+                                                <a href="?page=inbox&folder=<?php echo $folder; ?>" class="btn btn-default">
+                                                    <i class="fas fa-times"></i>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </form>
                                 
-                                <?php if ($currentPage < $totalPages): ?>
-                                    <a href="?page=inbox&folder=<?php echo $folder; ?>&p=<?php echo $currentPage + 1; ?>&per_page=<?php echo $perPage . $searchParam; ?>" 
-                                       class="btn btn-default btn-sm" title="Selanjutnya">
-                                        <i class="fas fa-chevron-right"></i>
-                                    </a>
-                                <?php else: ?>
-                                    <button class="btn btn-default btn-sm" disabled>
-                                        <i class="fas fa-chevron-right"></i>
-                                    </button>
-                                <?php endif; ?>
+                                <span class="text-muted mr-3">
+                                    <?php 
+                                    $start = $totalEmails > 0 ? $offset + 1 : 0;
+                                    $end = min($offset + $perPage, $totalEmails);
+                                    echo "$start-$end dari $totalEmails";
+                                    ?>
+                                </span>
+                                
+                                <div class="form-inline mr-2">
+                                    <label class="mr-2">Tampilkan:</label>
+                                    <select id="per-page" onchange="changePerPage(this.value)" class="form-control form-control-sm">
+                                        <option value="10" <?php echo $perPage == 10 ? 'selected' : ''; ?>>10</option>
+                                        <option value="25" <?php echo $perPage == 25 ? 'selected' : ''; ?>>25</option>
+                                        <option value="50" <?php echo $perPage == 50 ? 'selected' : ''; ?>>50</option>
+                                        <option value="100" <?php echo $perPage == 100 ? 'selected' : ''; ?>>100</option>
+                                    </select>
+                                </div>
+                                
+                                <?php 
+                                $searchParam = !empty($search) ? '&search=' . urlencode($search) : '';
+                                ?>
+                                <div class="btn-group">
+                                    <?php if ($currentPage > 1): ?>
+                                        <a href="?page=inbox&folder=<?php echo $folder; ?>&p=<?php echo $currentPage - 1; ?>&per_page=<?php echo $perPage . $searchParam; ?>" 
+                                           class="btn btn-default btn-sm" title="Sebelumnya">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </a>
+                                    <?php else: ?>
+                                        <button class="btn btn-default btn-sm" disabled>
+                                            <i class="fas fa-chevron-left"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                    
+                                    <?php if ($currentPage < $totalPages): ?>
+                                        <a href="?page=inbox&folder=<?php echo $folder; ?>&p=<?php echo $currentPage + 1; ?>&per_page=<?php echo $perPage . $searchParam; ?>" 
+                                           class="btn btn-default btn-sm" title="Selanjutnya">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </a>
+                                    <?php else: ?>
+                                        <button class="btn btn-default btn-sm" disabled>
+                                            <i class="fas fa-chevron-right"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                     </div>

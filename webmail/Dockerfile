@@ -21,10 +21,11 @@ RUN composer install --no-dev --optimize-autoloader
 # Copy source files (this won't overwrite vendor/)
 COPY src/ /var/www/html/src/
 COPY index.php /var/www/html/
+COPY assets/ /var/www/html/assets/
 
 # Copy PHP configuration
-RUN echo "upload_max_filesize = 50M" >> /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "post_max_size = 50M" >> /usr/local/etc/php/conf.d/uploads.ini
+RUN echo "upload_max_filesize = 10M" >> /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "post_max_size = 10M" >> /usr/local/etc/php/conf.d/uploads.ini
 
 # Expose port
 EXPOSE 80

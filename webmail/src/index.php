@@ -82,6 +82,9 @@ if ($page === 'download' && isLoggedIn()) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>imel.id - Layanan Email Custom</title>
     
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/assets/logo.png">
+    
     <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
     <!-- Font Awesome -->
@@ -92,28 +95,224 @@ if ($page === 'download' && isLoggedIn()) {
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     
     <style>
+        /* Red-White Theme */
+        :root {
+            --red-primary: #dc143c;
+            --red-dark: #b71c1c;
+            --red-light: #ff5252;
+        }
+        
+        /* Navbar merah */
+        .navbar-white {
+            background-color: var(--red-primary) !important;
+            color: white !important;
+        }
+        .navbar-white .nav-link {
+            color: white !important;
+        }
+        .navbar-white .nav-link:hover {
+            color: #ffebee !important;
+        }
+        
+        /* Sidebar merah gelap */
+        .sidebar-dark-primary {
+            background-color: var(--red-dark) !important;
+        }
+        .sidebar-dark-primary .brand-link {
+            background-color: var(--red-dark) !important;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        /* Sidebar menu items */
+        .sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active {
+            background-color: var(--red-primary) !important;
+            color: white !important;
+        }
+        .sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link:hover {
+            background-color: rgba(220, 20, 60, 0.3) !important;
+            color: white !important;
+        }
+        
+        /* Buttons dan links */
+        .btn-primary {
+            background-color: var(--red-primary) !important;
+            border-color: var(--red-primary) !important;
+        }
+        .btn-primary:hover {
+            background-color: var(--red-dark) !important;
+            border-color: var(--red-dark) !important;
+        }
+        
+        /* Cards */
+        .card-primary:not(.card-outline) > .card-header {
+            background-color: var(--red-primary) !important;
+        }
+        .card-primary.card-outline {
+            border-top: 3px solid var(--red-primary) !important;
+        }
+        .card-primary.card-outline .btn-tool {
+            color: var(--red-primary) !important;
+        }
+        
+        /* Links */
+        a {
+            color: white !important;
+        }
+        a:hover {
+            color: var(--red-dark) !important;
+        }
+        
+        /* Fix text visibility in tables and content */
+        .table td, .table th {
+            color: #212529 !important;
+        }
+        .card-body, .content, .content-wrapper {
+            color: #212529 !important;
+        }
+        .text-muted {
+            color: #6c757d !important;
+        }
+        
+        /* Reset link colors in specific contexts */
+        .nav-link, .dropdown-item, .page-link {
+            color: inherit !important;
+        }
+        .navbar-white .nav-link {
+            color: white !important;
+        }
+        .sidebar a {
+            color: white !important;
+        }
+        
+        /* Fix table full width */
+        .table-responsive {
+            width: 100%;
+        }
+        .mailbox-messages table {
+            width: 100%;
+        }
+        
+        /* Make content area full width */
+        .content-wrapper {
+            margin-left: 250px !important;
+            margin-right: 0 !important;
+            padding: 0 !important;
+        }
+        .content-header, .content {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .content-header {
+            padding: 15px !important;
+        }
+        .content {
+            padding: 0 15px 15px 15px !important;
+        }
+        .content-header .container-fluid,
+        .content .container-fluid {
+            width: 100% !important;
+            max-width: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        .content .row {
+            margin: 0 !important;
+            width: 100% !important;
+        }
+        .content .col-md-12, 
+        .content .col-sm-6,
+        .content-header .col-sm-6 {
+            padding: 0 !important;
+            max-width: 100% !important;
+            flex: 0 0 100% !important;
+        }
+        .card {
+            width: 100% !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+        }
+        
+        /* Fix login-page dan wrapper untuk full width */
+        body.login-page {
+            display: block !important;
+            height: auto !important;
+        }
+        
+        .wrapper {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+        }
+        
+        body, .wrapper {
+            min-height: 100vh !important;
+        }
+        
+        /* Brand */
         .brand-link {
             font-size: 1.25rem;
             font-weight: bold;
         }
+        
+        /* Email items */
         .email-item {
             cursor: pointer;
             transition: all 0.3s;
         }
         .email-item:hover {
-            background-color: #f4f6f9;
+            background-color: #ffebee;
         }
         .email-item.unread {
-            background-color: #e3f2fd;
+            background-color: #ffcdd2;
             font-weight: 600;
+            border-left: 3px solid var(--red-primary);
         }
+        
+        /* Editor */
         #editor-container {
             min-height: 300px;
             background: white;
         }
+        
+        /* Info boxes dan badges */
+        .info-box .info-box-icon {
+            background-color: var(--red-primary) !important;
+        }
+        .badge-primary {
+            background-color: var(--red-primary) !important;
+        }
+        
+        /* Pagination */
+        .pagination .page-item.active .page-link {
+            background-color: var(--red-primary) !important;
+            border-color: var(--red-primary) !important;
+        }
+        .pagination .page-link {
+            color: var(--red-primary) !important;
+        }
+        .pagination .page-link:hover {
+            color: var(--red-dark) !important;
+        }
+        
+        /* Login page card */
+        .login-box .card-primary.card-outline {
+            border-top-color: var(--red-primary) !important;
+        }
+        
+        /* Login page background putih */
+        body.login-page, body.login-page::before {
+            background: white !important;
+            background-color: white !important;
+            background-image: none !important;
+        }
+        .login-page .login-box {
+            background: white !important;
+        }
     </style>
 </head>
-<body class="hold-transition sidebar-mini layout-fixed">
+<body class="hold-transition sidebar-mini layout-fixed login-page">
     <?php if (isLoggedIn()): ?>
     <div class="wrapper">
         <!-- Navbar -->
@@ -154,11 +353,11 @@ if ($page === 'download' && isLoggedIn()) {
         </nav>
 
         <!-- Main Sidebar Container -->
-        <aside class="main-sidebar sidebar-dark-primary elevation-4">
+        <aside class="main-sidebar sidebar-dark-primary elevation-4" style="background-color: #b71c1c;">
             <!-- Brand Logo -->
             <a href="?page=inbox" class="brand-link">
-                <i class="fas fa-envelope-open-text ml-3"></i>
-                <span class="brand-text font-weight-light ml-2">imel.id</span>
+                <img src="/assets/logo.png" alt="imel.id Logo" class="brand-image" style="width: 40px; height: 40px; object-fit: contain; margin-left: 10px; opacity: .8">
+                <span class="brand-text font-weight-light ml-2" style="color: white !important;">imel.id</span>
             </a>
 
             <!-- Sidebar -->
@@ -216,7 +415,7 @@ if ($page === 'download' && isLoggedIn()) {
         <div class="content-wrapper">
     <?php else: ?>
         <!-- Login/Register page without sidebar -->
-        <div class="login-page" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;">
+        <div class="login-page" style="background: white; min-height: 100vh;">
     <?php endif; ?>
     
     <?php
@@ -272,7 +471,7 @@ if ($page === 'download' && isLoggedIn()) {
         
         <!-- Footer -->
         <footer class="main-footer">
-            <strong>Copyright &copy; 2025 <a href="https://imel.id">imel.id</a>.</strong>
+            <strong>Copyright &copy; 2025 <a href="https://imel.id" style="color: black !important;">imel.id</a>.</strong>
             All rights reserved.
             <div class="float-right d-none d-sm-inline-block">
                 <b>Version</b> 1.0.0
