@@ -58,9 +58,9 @@ class DKIMSigner {
     private function prepareDKIMHeader($bodyHash, $headers) {
         $time = time();
         
-        // Headers to sign
-        $headersToSign = ['From', 'To', 'Subject', 'Date', 'Message-ID'];
-        $headerList = strtolower(implode(':', $headersToSign));
+        // Headers to sign (lowercase for h= parameter)
+        $headersToSign = ['from', 'to', 'subject', 'date', 'message-id'];
+        $headerList = implode(':', $headersToSign);
         
         $dkim = "v=1; a=rsa-sha256; c=relaxed/simple; d={$this->domain}; " .
                 "s={$this->selector}; t={$time}; " .
