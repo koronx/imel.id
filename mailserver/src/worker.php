@@ -339,6 +339,8 @@ function readSmtpResponse($socket) {
 
 function addDKIMSignature($emailContent) {
     try {
+        debugLog("[DKIM] Starting DKIM signing process");
+        
         // Split headers and body
         $parts = explode("\r\n\r\n", $emailContent, 2);
         if (count($parts) < 2) {
@@ -353,7 +355,15 @@ function addDKIMSignature($emailContent) {
         $headers = explode("\r\n", $headerBlock);
         
         // Initialize DKIM signer
-        $dkimSigner = new DKIMSigner('imel.id', 'default', __DIR__ . '/../dkim/private.key');
+        $keyPath = __DIR__ . '/dkim/private.key';
+        debugLog("[DKIM] Using private key at: " . $keyPath);
+        
+        if (!file_exists($keyPath)) {
+            debugLog("[DKIM] ERROR: Private key not found at " . $keyPath);
+            return $emailContent;
+        }
+        
+        $dkimSigner = new DKIMSigner('imel.id', 'default', $keyPath);
         
         // Sign the message
         $dkimSignature = $dkimSigner->signMessage($headers, $body);
@@ -361,11 +371,12 @@ function addDKIMSignature($emailContent) {
         // Add DKIM-Signature as first header
         $signedContent = $dkimSignature . "\r\n" . $emailContent;
         
-        debugLog("[DKIM] Email signed successfully");
+        debugLog("[DKIM] Email signed successfully with signature: " . substr($dkimSignature, 0, 80) . "...");
         
         return $signedContent;
     } catch (Exception $e) {
-        debugLog("[DKIM] Signing failed", $e->getMessage());
+        debugLog("[DKIM] Signing failed: " . $e->getMessage());
+        debugLog("[DKIM] Stack trace: " . $e->getTraceAsString());
         // Return original content if signing fails
         return $emailContent;
     }
