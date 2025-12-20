@@ -77,8 +77,14 @@ function getSessionToken() {
 // Routing
 $page = $_GET['page'] ?? 'login';
 
-if (!isLoggedIn() && !in_array($page, ['login', 'register', 'forgot-password'])) {
+if (!isLoggedIn() && !in_array($page, ['login', 'register', 'forgot-password', 'oauth-google', 'oauth-callback'])) {
     $page = 'login';
+}
+
+// Handle OAuth pages separately (no HTML template)
+if (in_array($page, ['oauth-google', 'oauth-callback'])) {
+    include "pages/$page.php";
+    exit;
 }
 
 // Handle download separately (no HTML template)

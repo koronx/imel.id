@@ -16,6 +16,10 @@
     RewriteEngine On
     RewriteBase /
     
+    # Handle OAuth callbacks - redirect to index.php with page parameter
+    RewriteRule ^oauth-callback$ /index.php?page=oauth-callback [QSA,L]
+    RewriteRule ^oauth-google$ /index.php?page=oauth-google [QSA,L]
+    
     # Don't rewrite files or directories that exist
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
