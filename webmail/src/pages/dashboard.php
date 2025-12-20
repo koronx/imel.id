@@ -9,6 +9,45 @@ if ($user['email'] !== 'admin@imel.id') {
 
 $db = getDB();
 
+// Handle Rate Limit Reset
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_rate_limit'])) {
+    $targetEmail = trim($_POST['target_email'] ?? '');
+    
+    if (empty($targetEmail)) {
+        $_SESSION['error'] = 'Email harus diisi';
+    } elseif (!filter_var($targetEmail, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['error'] = 'Format email tidak valid';
+    } else {
+        try {
+            // Get user ID
+            $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt->execute([$targetEmail]);
+            $targetUser = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$targetUser) {
+                $_SESSION['error'] = 'User tidak ditemukan: ' . htmlspecialchars($targetEmail);
+            } else {
+                // Reset external email rate limit
+                $stmt = $db->prepare("DELETE FROM external_email_log WHERE user_id = ?");
+                $stmt->execute([$targetUser['id']]);
+                $deletedExternal = $stmt->rowCount();
+                
+                // Reset forgot password rate limit
+                $stmt = $db->prepare("DELETE FROM forgot_password_attempts WHERE email = ?");
+                $stmt->execute([$targetEmail]);
+                $deletedForgot = $stmt->rowCount();
+                
+                $_SESSION['success'] = "Rate limit berhasil direset untuk {$targetEmail} (Email: {$deletedExternal}, Forgot Password: {$deletedForgot})";
+            }
+        } catch (Exception $e) {
+            $_SESSION['error'] = 'Error: ' . $e->getMessage();
+        }
+        
+        header('Location: ?page=dashboard');
+        exit;
+    }
+}
+
 // Total Users
 $stmt = $db->query("SELECT COUNT(*) as total FROM users");
 $totalUsers = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -123,6 +162,21 @@ foreach ($hourlyStats as $stat) {
 <!-- Main content -->
 <section class="content">
     <div class="container-fluid">
+        <!-- Alert Messages -->
+        <?php if (isset($_SESSION['success'])): ?>
+            <div class="alert alert-success alert-dismissible fade show">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+                <i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show">
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+                <i class="fas fa-exclamation-triangle"></i> <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
+            </div>
+        <?php endif; ?>
+        
         <!-- Info boxes -->
         <div class="row">
             <div class="col-lg-3 col-6">
@@ -166,6 +220,31 @@ foreach ($hourlyStats as $stat) {
                     </div>
                     <div class="icon">
                         <i class="fas fa-paper-plane"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Tools -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-warning card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-tools"></i> Admin Tools - Reset Rate Limit</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" class="form-inline">
+                            <div class="form-group mr-3">
+                                <label class="mr-2">Email User:</label>
+                                <input type="email" name="target_email" class="form-control" placeholder="user@imel.id" required style="width: 300px;">
+                            </div>
+                            <button type="submit" name="reset_rate_limit" class="btn btn-warning">
+                                <i class="fas fa-redo"></i> Reset Rate Limit
+                            </button>
+                        </form>
+                        <small class="form-text text-muted mt-2">
+                            <i class="fas fa-info-circle"></i> Reset semua rate limit untuk user tertentu (email eksternal & forgot password)
+                        </small>
                     </div>
                 </div>
             </div>
