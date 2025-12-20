@@ -65,7 +65,8 @@ class DKIMSigner {
         $dkim = "v=1; a=rsa-sha256; c=relaxed/simple; d={$this->domain}; " .
                 "s={$this->selector}; t={$time}; " .
                 "bh={$bodyHash}; " .
-                "h={$headerList}; ";
+                "h={$headerList}; " .
+                "b=";
         
         return $dkim;
     }
@@ -77,8 +78,11 @@ class DKIMSigner {
         // Canonicalize headers
         $canonicalizedHeaders = $this->canonicalizeHeaders($headers);
         
+        // Canonicalize DKIM header (includes dkim-signature: prefix)
+        $canonicalizedDkimHeader = $this->canonicalizeDKIMHeader($dkimHeader);
+        
         // Data to sign
-        $dataToSign = $canonicalizedHeaders . "dkim-signature:" . $this->canonicalizeDKIMHeader($dkimHeader);
+        $dataToSign = $canonicalizedHeaders . $canonicalizedDkimHeader;
         
         // Sign with private key
         $privateKeyResource = openssl_pkey_get_private($this->privateKey);
@@ -121,14 +125,18 @@ class DKIMSigner {
     }
     
     /**
-     * Canonicalize DKIM header
+     * Canonicalize DKIM header (relaxed)
      */
     private function canonicalizeDKIMHeader($dkimHeader) {
-        // Remove spaces around = and ;
-        $canonicalized = preg_replace('/\s*=\s*/', '=', $dkimHeader);
+        // For relaxed canonicalization:
+        // - Convert header name to lowercase
+        // - Unfold header (remove line breaks)
+        // - Compress whitespace before/after =
+        // - Remove trailing spaces
+        $canonicalized = 'dkim-signature:' . preg_replace('/\s+/', ' ', trim($dkimHeader));
+        $canonicalized = preg_replace('/\s*=\s*/', '=', $canonicalized);
         $canonicalized = preg_replace('/\s*;\s*/', ';', $canonicalized);
-        $canonicalized = trim($canonicalized);
         
-        return $canonicalized;
+        return rtrim($canonicalized);
     }
 }
