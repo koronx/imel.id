@@ -128,7 +128,7 @@ if (empty($code)) {
             ");
             $stmt->execute([$userId, $googleEmail]);
             
-            // Send welcome email
+            // Send welcome email via SMTP
             try {
                 error_log('[OAUTH_CALLBACK] Sending welcome email to: ' . $imelEmail);
                 
@@ -138,61 +138,67 @@ if (empty($code)) {
                 $from = 'admin@imel.id';
                 $to = $imelEmail;
                 $subject = 'Selamat Datang di imel.id!';
-                $body = "Halo $googleName,\n\n";
-                $body .= "Selamat datang di imel.id!\n\n";
-                $body .= "Akun email Anda telah berhasil dibuat:\n";
-                $body .= "Email: $imelEmail\n";
-                $body .= "Nama: $googleName\n";
-                $body .= "Secondary Email: $googleEmail\n\n";
-                $body .= "Anda dapat login menggunakan akun Google Anda ($googleEmail) kapan saja.\n\n";
-                $body .= "Fitur yang tersedia:\n";
-                $body .= "- Kirim dan terima email\n";
-                $body .= "- Storage: 100 MB\n";
-                $body .= "- Webmail interface\n";
-                $body .= "- Mobile app support\n\n";
-                $body .= "Terima kasih telah menggunakan layanan kami!\n\n";
-                $body .= "Salam,\n";
-                $body .= "Tim imel.id";
                 
-                $boundary = md5(time());
-                $headers = "From: Admin imel.id <$from>\r\n";
-                $headers .= "Reply-To: $from\r\n";
-                $headers .= "MIME-Version: 1.0\r\n";
-                $headers .= "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
-                $headers .= "X-Mailer: imel.id OAuth System\r\n";
+                $htmlBody = "<html><body style='font-family: Arial, sans-serif;'>";
+                $htmlBody .= "<h2 style='color: #dc143c;'>Selamat Datang di imel.id!</h2>";
+                $htmlBody .= "<p>Halo <strong>$googleName</strong>,</p>";
+                $htmlBody .= "<p>Selamat datang di <strong>imel.id</strong>!</p>";
+                $htmlBody .= "<div style='background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;'>";
+                $htmlBody .= "<h3>Akun Email Anda:</h3>";
+                $htmlBody .= "<p>📧 Email: <strong>$imelEmail</strong><br>";
+                $htmlBody .= "👤 Nama: <strong>$googleName</strong><br>";
+                $htmlBody .= "🔗 Secondary Email: <strong>$googleEmail</strong></p>";
+                $htmlBody .= "</div>";
+                $htmlBody .= "<p>Anda dapat login menggunakan akun Google Anda (<strong>$googleEmail</strong>) kapan saja.</p>";
+                $htmlBody .= "<div style='background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;'>";
+                $htmlBody .= "<h4>Fitur yang tersedia:</h4>";
+                $htmlBody .= "<ul>";
+                $htmlBody .= "<li>✉️ Kirim dan terima email</li>";
+                $htmlBody .= "<li>💾 Storage: 100 MB</li>";
+                $htmlBody .= "<li>🌐 Webmail interface</li>";
+                $htmlBody .= "<li>📱 Mobile app support</li>";
+                $htmlBody .= "</ul></div>";
+                $htmlBody .= "<p>Terima kasih telah menggunakan layanan kami!</p>";
+                $htmlBody .= "<p style='margin-top: 30px;'>Salam,<br><strong>Tim imel.id</strong></p>";
+                $htmlBody .= "</body></html>";
                 
-                $message = "--$boundary\r\n";
-                $message .= "Content-Type: text/plain; charset=UTF-8\r\n";
-                $message .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
-                $message .= "$body\r\n";
-                $message .= "--$boundary\r\n";
-                $message .= "Content-Type: text/html; charset=UTF-8\r\n";
-                $message .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
-                $message .= "<html><body style='font-family: Arial, sans-serif;'>";
-                $message .= "<h2 style='color: #dc143c;'>Selamat Datang di imel.id!</h2>";
-                $message .= "<p>Halo <strong>$googleName</strong>,</p>";
-                $message .= "<p>Selamat datang di <strong>imel.id</strong>!</p>";
-                $message .= "<div style='background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;'>";
-                $message .= "<h3>Akun Email Anda:</h3>";
-                $message .= "<p>📧 Email: <strong>$imelEmail</strong><br>";
-                $message .= "👤 Nama: <strong>$googleName</strong><br>";
-                $message .= "🔗 Secondary Email: <strong>$googleEmail</strong></p>";
-                $message .= "</div>";
-                $message .= "<p>Anda dapat login menggunakan akun Google Anda (<strong>$googleEmail</strong>) kapan saja.</p>";
-                $message .= "<div style='background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;'>";
-                $message .= "<h4>Fitur yang tersedia:</h4>";
-                $message .= "<ul>";
-                $message .= "<li>✉️ Kirim dan terima email</li>";
-                $message .= "<li>💾 Storage: 100 MB</li>";
-                $message .= "<li>🌐 Webmail interface</li>";
-                $message .= "<li>📱 Mobile app support</li>";
-                $message .= "</ul></div>";
-                $message .= "<p>Terima kasih telah menggunakan layanan kami!</p>";
-                $message .= "<p style='margin-top: 30px;'>Salam,<br><strong>Tim imel.id</strong></p>";
-                $message .= "</body></html>\r\n";
-                $message .= "--$boundary--";
+                $plainBody = "Halo $googleName,\n\n";
+                $plainBody .= "Selamat datang di imel.id!\n\n";
+                $plainBody .= "Akun email Anda telah berhasil dibuat:\n";
+                $plainBody .= "Email: $imelEmail\n";
+                $plainBody .= "Nama: $googleName\n";
+                $plainBody .= "Secondary Email: $googleEmail\n\n";
+                $plainBody .= "Anda dapat login menggunakan akun Google Anda ($googleEmail) kapan saja.\n\n";
+                $plainBody .= "Fitur yang tersedia:\n";
+                $plainBody .= "- Kirim dan terima email\n";
+                $plainBody .= "- Storage: 100 MB\n";
+                $plainBody .= "- Webmail interface\n";
+                $plainBody .= "- Mobile app support\n\n";
+                $plainBody .= "Terima kasih telah menggunakan layanan kami!\n\n";
+                $plainBody .= "Salam,\nTim imel.id";
                 
-                $socket = fsockopen($mailHost, $mailPort, $errno, $errstr, 10);
+                $boundary = '----=_Part_' . md5(time());
+                $messageId = '<' . md5(uniqid()) . '@imel.id>';
+                $date = date('r');
+                
+                $emailContent = "From: Admin imel.id <$from>\r\n";
+                $emailContent .= "To: <$to>\r\n";
+                $emailContent .= "Subject: $subject\r\n";
+                $emailContent .= "Date: $date\r\n";
+                $emailContent .= "Message-ID: $messageId\r\n";
+                $emailContent .= "MIME-Version: 1.0\r\n";
+                $emailContent .= "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n\r\n";
+                $emailContent .= "--$boundary\r\n";
+                $emailContent .= "Content-Type: text/plain; charset=UTF-8\r\n";
+                $emailContent .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+                $emailContent .= "$plainBody\r\n";
+                $emailContent .= "--$boundary\r\n";
+                $emailContent .= "Content-Type: text/html; charset=UTF-8\r\n";
+                $emailContent .= "Content-Transfer-Encoding: 7bit\r\n\r\n";
+                $emailContent .= "$htmlBody\r\n";
+                $emailContent .= "--$boundary--\r\n";
+                
+                $socket = @fsockopen($mailHost, $mailPort, $errno, $errstr, 10);
                 if ($socket) {
                     fgets($socket);
                     fputs($socket, "HELO imel.id\r\n");
@@ -203,14 +209,13 @@ if (empty($code)) {
                     fgets($socket);
                     fputs($socket, "DATA\r\n");
                     fgets($socket);
-                    fputs($socket, "Subject: $subject\r\n");
-                    fputs($socket, $headers . "\r\n");
-                    fputs($socket, $message . "\r\n.\r\n");
-                    fgets($socket);
+                    fputs($socket, $emailContent);
+                    fputs($socket, "\r\n.\r\n");
+                    $response = fgets($socket);
                     fputs($socket, "QUIT\r\n");
                     fclose($socket);
                     
-                    error_log('[OAUTH_CALLBACK] Welcome email sent successfully');
+                    error_log('[OAUTH_CALLBACK] Welcome email sent successfully. SMTP response: ' . trim($response));
                 } else {
                     error_log('[OAUTH_CALLBACK] Failed to connect to mail server: ' . $errstr);
                 }
