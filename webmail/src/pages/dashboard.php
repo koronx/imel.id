@@ -143,6 +143,20 @@ $stmt = $db->query("
 ");
 $topSenderDomains = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Total quota statistics
+$stmt = $db->query("
+    SELECT 
+        SUM(quota_bytes) as total_quota_bytes,
+        SUM(quota_used) as total_used_bytes,
+        ROUND((SUM(quota_used)::NUMERIC / NULLIF(SUM(quota_bytes), 0)::NUMERIC) * 100, 1) as usage_percent
+    FROM users
+");
+$quotaStats = $stmt->fetch(PDO::FETCH_ASSOC);
+$totalQuotaGB = round($quotaStats['total_quota_bytes'] / (1024 * 1024 * 1024), 2);
+$totalUsedMB = round($quotaStats['total_used_bytes'] / (1024 * 1024), 1);
+$totalUsedGB = round($quotaStats['total_used_bytes'] / (1024 * 1024 * 1024), 2);
+$totalUsagePercent = $quotaStats['usage_percent'] ?? 0;
+
 // Total emails statistics
 $stmt = $db->query("
     SELECT 
@@ -257,6 +271,43 @@ foreach ($hourlyStats as $stat) {
                     </div>
                     <div class="icon">
                         <i class="fas fa-paper-plane"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quota Statistics -->
+        <div class="row">
+            <div class="col-lg-4 col-12">
+                <div class="small-box bg-purple">
+                    <div class="inner">
+                        <h3><?php echo $totalQuotaGB; ?> GB</h3>
+                        <p>Total Kuota</p>
+                    </div>
+                    <div class="icon">
+                        <i class="fas fa-database"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4 col-12">
+                <div class="small-box bg-teal">
+                    <div class="inner">
+                        <h3><?php echo $totalUsedMB < 1024 ? $totalUsedMB . ' MB' : $totalUsedGB . ' GB'; ?></h3>
+                        <p>Total Terpakai</p>
+                    </div>
+                    <div class="icon">
+                        <i class="fas fa-hdd"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4 col-12">
+                <div class="small-box bg-<?php echo $totalUsagePercent > 90 ? 'danger' : ($totalUsagePercent > 75 ? 'warning' : 'primary'); ?>">
+                    <div class="inner">
+                        <h3><?php echo $totalUsagePercent; ?>%</h3>
+                        <p>Penggunaan Kuota</p>
+                    </div>
+                    <div class="icon">
+                        <i class="fas fa-chart-pie"></i>
                     </div>
                 </div>
             </div>

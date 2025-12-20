@@ -153,6 +153,10 @@ if ($isInternal) {
         
         $inboxEmailId = $db->lastInsertId();
         
+        // Calculate total size for recipient
+        $recipientTotalSize = strlen($emailContent);
+        $recipientAttachmentSize = 0;
+        
         // Save attachments for recipient
         if (!empty($attachmentPaths)) {
             $stmt = $db->prepare("
@@ -168,8 +172,14 @@ if ($isInternal) {
                     $attachment['size'],
                     $attachment['path']
                 ]);
+                $recipientAttachmentSize += $attachment['size'];
             }
         }
+        
+        // Update recipient quota
+        $recipientQuotaIncrease = $recipientTotalSize + $recipientAttachmentSize;
+        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+        $stmt->execute([$recipientQuotaIncrease, $recipient['id']]);
         
         // Save to sender's sent folder
         $stmt = $db->prepare("
@@ -191,6 +201,10 @@ if ($isInternal) {
         
         $sentEmailId = $db->lastInsertId();
         
+        // Calculate total size for sender
+        $senderTotalSize = strlen($emailContent);
+        $senderAttachmentSize = 0;
+        
         // Save attachments for sender
         if (!empty($attachmentPaths)) {
             $stmt = $db->prepare("
@@ -206,8 +220,14 @@ if ($isInternal) {
                     $attachment['size'],
                     $attachment['path']
                 ]);
+                $senderAttachmentSize += $attachment['size'];
             }
         }
+        
+        // Update sender quota
+        $senderQuotaIncrease = $senderTotalSize + $senderAttachmentSize;
+        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+        $stmt->execute([$senderQuotaIncrease, $user['id']]);
         
         $_SESSION['success'] = 'Email berhasil dikirim!';
     } else {
@@ -309,6 +329,10 @@ if ($isInternal) {
         
         $emailId = $db->lastInsertId();
         
+        // Calculate total size for sender
+        $senderTotalSize = strlen($emailContent);
+        $senderAttachmentSize = 0;
+        
         // Save attachments
         if (!empty($attachmentPaths)) {
             $stmt = $db->prepare("
@@ -324,8 +348,14 @@ if ($isInternal) {
                     $attachment['size'],
                     $attachment['path']
                 ]);
+                $senderAttachmentSize += $attachment['size'];
             }
         }
+        
+        // Update sender quota
+        $senderQuotaIncrease = $senderTotalSize + $senderAttachmentSize;
+        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+        $stmt->execute([$senderQuotaIncrease, $user['id']]);
         
         $_SESSION['success'] = 'Email berhasil dikirim!';
     } catch (Exception $e) {

@@ -324,6 +324,16 @@ if ($page === 'download' && isLoggedIn()) {
             background: white !important;
         }
         
+        /* Additional color classes for small-box */
+        .bg-purple {
+            background-color: #6f42c1 !important;
+            color: white !important;
+        }
+        .bg-teal {
+            background-color: #20c997 !important;
+            color: white !important;
+        }
+        
         /* ========== RESPONSIVE DESIGN FOR MOBILE ========== */
         @media (max-width: 768px) {
             /* Hide sidebar by default on mobile */

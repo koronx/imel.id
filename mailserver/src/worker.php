@@ -689,12 +689,34 @@ function saveLocalEmail($recipient, $emailJob) {
             
             $emailId = $db->lastInsertId();
             
+            // Calculate total size (email body + attachments)
+            $totalSize = $emailJob['size'] ?? 0;
+            $attachmentSize = 0;
+            
             // Save attachments if any
             if (!empty($emailJob['attachments'])) {
+                foreach ($emailJob['attachments'] as $attachment) {
+                    if (isset($attachment['content'])) {
+                        $attachmentSize += strlen($attachment['content']);
+                    } elseif (isset($attachment['size'])) {
+                        $attachmentSize += $attachment['size'];
+                    }
+                }
                 saveAttachments($db, $emailId, $emailJob['attachments']);
             }
             
-            debugLog("[WORKER] Email saved successfully", ['email_id' => $emailId, 'recipient' => $recipient]);
+            // Update user quota (email size + attachments)
+            $quotaIncrease = $totalSize + $attachmentSize;
+            $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+            $stmt->execute([$quotaIncrease, $user['id']]);
+            
+            debugLog("[WORKER] Email saved successfully", [
+                'email_id' => $emailId, 
+                'recipient' => $recipient,
+                'quota_increase' => $quotaIncrease,
+                'email_size' => $totalSize,
+                'attachment_size' => $attachmentSize
+            ]);
             return true;
         } else {
             debugLog("[WORKER] Local user not found", $recipient);

@@ -489,12 +489,33 @@ if ($action === 'delete_email') {
     
     $db = getDB();
     
-    // Delete email using user_id
-    $stmt = $db->prepare("DELETE FROM emails WHERE id = ? AND user_id = ?");
+    // Get email size before deletion
+    $stmt = $db->prepare("
+        SELECT e.size, COALESCE(SUM(a.size), 0) as attachment_size
+        FROM emails e
+        LEFT JOIN attachments a ON a.email_id = e.id
+        WHERE e.id = ? AND e.user_id = ?
+        GROUP BY e.size
+    ");
     $stmt->execute([$emailId, $userId]);
+    $emailData = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($stmt->rowCount() > 0) {
-        sendSuccess([], 'Email berhasil dihapus');
+    if ($emailData) {
+        $quotaDecrease = $emailData['size'] + $emailData['attachment_size'];
+        
+        // Delete email using user_id
+        $stmt = $db->prepare("DELETE FROM emails WHERE id = ? AND user_id = ?");
+        $stmt->execute([$emailId, $userId]);
+        
+        if ($stmt->rowCount() > 0) {
+            // Decrease quota
+            $stmt = $db->prepare("UPDATE users SET quota_used = GREATEST(quota_used - ?, 0) WHERE id = ?");
+            $stmt->execute([$quotaDecrease, $userId]);
+            
+            sendSuccess([], 'Email berhasil dihapus');
+        } else {
+            sendError('Email tidak ditemukan atau tidak dapat dihapus', 404);
+        }
     } else {
         sendError('Email tidak ditemukan atau tidak dapat dihapus', 404);
     }

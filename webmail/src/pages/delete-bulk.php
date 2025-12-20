@@ -30,14 +30,35 @@ $db = getDB();
 
 // Move to trash or delete permanently
 if ($folder === 'trash') {
-    // Delete permanently - HANYA email milik user yang login
+    // Calculate quota to decrease before deletion
     $placeholders = implode(',', array_fill(0, count($emailIds), '?'));
+    $stmt = $db->prepare("
+        SELECT e.id, e.size, COALESCE(SUM(a.size), 0) as attachment_size
+        FROM emails e
+        LEFT JOIN attachments a ON a.email_id = e.id
+        WHERE e.id IN ($placeholders) AND e.user_id = ?
+        GROUP BY e.id, e.size
+    ");
+    $stmt->execute(array_merge($emailIds, [$user['id']]));
+    $emailsToDelete = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Calculate total quota to decrease
+    $totalQuotaDecrease = 0;
+    foreach ($emailsToDelete as $email) {
+        $totalQuotaDecrease += $email['size'] + $email['attachment_size'];
+    }
+    
+    // Delete permanently - HANYA email milik user yang login
     $stmt = $db->prepare("DELETE FROM emails WHERE id IN ($placeholders) AND user_id = ?");
     $stmt->execute(array_merge($emailIds, [$user['id']]));
     
     $deletedCount = $stmt->rowCount();
     
     if ($deletedCount > 0) {
+        // Decrease quota
+        $stmt = $db->prepare("UPDATE users SET quota_used = GREATEST(quota_used - ?, 0) WHERE id = ?");
+        $stmt->execute([$totalQuotaDecrease, $user['id']]);
+        
         $_SESSION['success'] = $deletedCount . ' email berhasil dihapus permanen';
     } else {
         $_SESSION['error'] = 'Tidak ada email yang berhasil dihapus (bukan milik Anda)';
