@@ -375,6 +375,15 @@ if ($page === 'download' && isLoggedIn()) {
                 <!-- Sidebar Menu -->
                 <nav class="mt-2">
                     <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
+                        <?php if (getCurrentUser()['email'] === 'admin@imel.id'): ?>
+                        <li class="nav-item">
+                            <a href="?page=dashboard" class="nav-link <?php echo $page === 'dashboard' ? 'active' : ''; ?>">
+                                <i class="nav-icon fas fa-tachometer-alt"></i>
+                                <p>Dashboard</p>
+                            </a>
+                        </li>
+                        <li class="nav-header">EMAIL</li>
+                        <?php endif; ?>
                         <li class="nav-item">
                             <a href="?page=compose" class="nav-link <?php echo $page === 'compose' ? 'active' : ''; ?>">
                                 <i class="nav-icon fas fa-edit"></i>
@@ -421,6 +430,9 @@ if ($page === 'download' && isLoggedIn()) {
     <?php
     // Handle different pages
     switch ($page) {
+        case 'dashboard':
+            include 'pages/dashboard.php';
+            break;
         case 'login':
             include 'pages/login.php';
             break;
