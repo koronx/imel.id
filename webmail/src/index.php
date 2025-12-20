@@ -64,7 +64,7 @@ function getCurrentUser() {
 // Routing
 $page = $_GET['page'] ?? 'login';
 
-if (!isLoggedIn() && !in_array($page, ['login', 'register'])) {
+if (!isLoggedIn() && !in_array($page, ['login', 'register', 'forgot-password'])) {
     $page = 'login';
 }
 
@@ -438,6 +438,9 @@ if ($page === 'download' && isLoggedIn()) {
             break;
         case 'register':
             include 'pages/register.php';
+            break;
+        case 'forgot-password':
+            include 'pages/forgot-password.php';
             break;
         case 'logout':
             include 'pages/logout.php';

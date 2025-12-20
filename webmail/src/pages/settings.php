@@ -1,5 +1,29 @@
 <?php
 $user = getCurrentUser();
+$db = getDB();
+
+// Get secondary email
+$stmt = $db->prepare("SELECT secondary_email FROM users WHERE id = ?");
+$stmt->execute([$user['id']]);
+$userDetails = $stmt->fetch(PDO::FETCH_ASSOC);
+$secondaryEmail = $userDetails['secondary_email'] ?? '';
+
+// Handle secondary email update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_secondary_email'])) {
+    $newSecondaryEmail = trim($_POST['secondary_email'] ?? '');
+    
+    if (!empty($newSecondaryEmail) && !filter_var($newSecondaryEmail, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['error'] = 'Format email tidak valid';
+    } elseif ($newSecondaryEmail === $user['email']) {
+        $_SESSION['error'] = 'Email recovery tidak boleh sama dengan email utama';
+    } else {
+        $stmt = $db->prepare("UPDATE users SET secondary_email = ? WHERE id = ?");
+        $stmt->execute([empty($newSecondaryEmail) ? null : $newSecondaryEmail, $user['id']]);
+        $_SESSION['success'] = 'Email recovery berhasil diperbarui';
+        header('Location: ?page=settings');
+        exit;
+    }
+}
 ?>
 
 <!-- Content Header (Page header) -->
@@ -51,6 +75,39 @@ $user = getCurrentUser();
                             <dd class="col-sm-8"><?php echo htmlspecialchars($user['full_name']); ?></dd>
                         </dl>
                     </div>
+                </div>
+                
+                <!-- Secondary Email Card -->
+                <div class="card card-info card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-shield-alt"></i> Email Recovery</h3>
+                    </div>
+                    
+                    <form method="POST">
+                        <div class="card-body">
+                            <p class="text-muted">
+                                <i class="fas fa-info-circle"></i> Email recovery digunakan untuk reset password dan verifikasi 2FA.
+                            </p>
+                            <div class="form-group">
+                                <label>Email Recovery</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                                    </div>
+                                    <input type="email" name="secondary_email" class="form-control" 
+                                           placeholder="recovery@example.com" 
+                                           value="<?php echo htmlspecialchars($secondaryEmail); ?>">
+                                </div>
+                                <small class="form-text text-muted">Kosongkan jika tidak ingin menggunakan email recovery</small>
+                            </div>
+                        </div>
+                        
+                        <div class="card-footer">
+                            <button type="submit" name="update_secondary_email" class="btn btn-info">
+                                <i class="fas fa-save"></i> Simpan Email Recovery
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
             
