@@ -134,14 +134,28 @@ class DKIMSigner {
      */
     private function canonicalizeDKIMHeader($dkimHeader) {
         // For relaxed canonicalization:
-        // - Convert header name to lowercase
-        // - Unfold header (remove line breaks)
-        // - Compress whitespace before/after =
-        // - Remove trailing spaces
-        $canonicalized = 'dkim-signature:' . preg_replace('/\s+/', ' ', trim($dkimHeader));
-        $canonicalized = preg_replace('/\s*=\s*/', '=', $canonicalized);
-        $canonicalized = preg_replace('/\s*;\s*/', ';', $canonicalized);
+        // - Lowercase header name (already done - will add prefix dkim-signature:)
+        // - Compress whitespace (multiple spaces to single space)
+        // - Remove space before/after : and =
+        // - Keep single space after ; (as per original formatting)
         
-        return rtrim($canonicalized);
+        $canonicalized = trim($dkimHeader);
+        
+        // Compress multiple spaces to single space
+        $canonicalized = preg_replace('/\s+/', ' ', $canonicalized);
+        
+        // Remove space around =
+        $canonicalized = preg_replace('/\s*=\s*/', '=', $canonicalized);
+        
+        // Ensure single space after ; (not removing space after semicolon)
+        $canonicalized = preg_replace('/\s*;\s*/', '; ', $canonicalized);
+        
+        // Add dkim-signature: prefix (lowercase)
+        $canonicalized = 'dkim-signature:' . $canonicalized;
+        
+        // Remove trailing space at the very end
+        $canonicalized = rtrim($canonicalized);
+        
+        return $canonicalized;
     }
 }
