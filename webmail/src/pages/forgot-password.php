@@ -5,15 +5,21 @@ $step = $_GET['step'] ?? 'request'; // request, sent, reset
 
 // Step 1: Request password reset
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step === 'request') {
+    error_log("[FORGOT-PASSWORD] Form submitted, POST data: " . json_encode($_POST));
     $email = trim($_POST['email'] ?? '');
+    error_log("[FORGOT-PASSWORD] Email: " . $email);
     
     if (empty($email)) {
         $error = 'Email harus diisi';
+        error_log("[FORGOT-PASSWORD] Empty email error");
     } else {
+        error_log("[FORGOT-PASSWORD] Processing email: " . $email);
         $db = getDB();
+        error_log("[FORGOT-PASSWORD] DB connection established");
         $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         
         // Check rate limit - max 10 attempts per hour per email
+        error_log("[FORGOT-PASSWORD] Checking rate limit for: " . $email);
         $stmt = $db->prepare("
             SELECT COUNT(*) as count 
             FROM forgot_password_attempts 
@@ -21,33 +27,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step === 'request') {
         ");
         $stmt->execute([$email]);
         $attempts = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
+        error_log("[FORGOT-PASSWORD] Attempts in last hour: " . $attempts);
         
         if ($attempts >= 10) {
             $error = 'Terlalu banyak percobaan. Silakan coba lagi dalam 1 jam.';
+            error_log("[FORGOT-PASSWORD] Rate limit exceeded for: " . $email);
         } else {
             // Log attempt
+            error_log("[FORGOT-PASSWORD] Logging attempt for: " . $email);
             $stmt = $db->prepare("INSERT INTO forgot_password_attempts (email, ip_address) VALUES (?, ?)");
             $stmt->execute([$email, $ipAddress]);
+            error_log("[FORGOT-PASSWORD] Attempt logged");
             
             // Check if user exists
+            error_log("[FORGOT-PASSWORD] Checking if user exists: " . $email);
             $stmt = $db->prepare("SELECT id, email, secondary_email FROM users WHERE email = ?");
             $stmt->execute([$email]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            error_log("[FORGOT-PASSWORD] User found: " . ($user ? 'yes' : 'no'));
             
             if ($user) {
+                error_log("[FORGOT-PASSWORD] User data: " . json_encode($user));
                 // Generate reset token
                 $token = bin2hex(random_bytes(32));
                 $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                error_log("[FORGOT-PASSWORD] Token generated: " . substr($token, 0, 10) . "...");
                 
                 $stmt = $db->prepare("
                     INSERT INTO password_reset_tokens (user_id, token, expires_at) 
                     VALUES (?, ?, ?)
                 ");
                 $stmt->execute([$user['id'], $token, $expiresAt]);
+                error_log("[FORGOT-PASSWORD] Token saved to database");
                 
                 // Send reset email to secondary email if available, otherwise primary
                 $targetEmail = !empty($user['secondary_email']) ? $user['secondary_email'] : $user['email'];
+                error_log("[FORGOT-PASSWORD] Target email: " . $targetEmail);
                 $resetLink = "http://" . $_SERVER['HTTP_HOST'] . "?page=forgot-password&step=reset&token=" . $token;
+                error_log("[FORGOT-PASSWORD] Reset link: " . $resetLink);
                 
                 // Queue email via mailserver
                 $emailData = [
@@ -68,30 +85,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step === 'request') {
                     "
                 ];
                 
-                // Send via internal mail system
-                $stmt = $db->prepare("
-                    INSERT INTO emails (user_id, from_email, to_email, subject, body, html_body, folder, is_read) 
-                    VALUES (?, ?, ?, ?, ?, ?, 'sent', true)
-                ");
-                $stmt->execute([
-                    $user['id'],
-                    $emailData['from'],
-                    $emailData['to'],
-                    $emailData['subject'],
-                    $emailData['body'],
-                    $emailData['html_body']
-                ]);
-                
-                // Queue for external sending
+                // Queue email via Redis for external sending
+                error_log("[FORGOT-PASSWORD] Starting to queue email for: " . $targetEmail);
                 try {
-                    $redis = new Predis\Client([
+                    $redis = new \Predis\Client([
                         'scheme' => 'tcp',
                         'host' => getenv('REDIS_HOST') ?: 'redis',
-                        'port' => getenv('REDIS_PORT') ?: 6379,
+                        'port' => (int)(getenv('REDIS_PORT') ?: 6379),
                     ]);
-                    $redis->rpush('email_queue', json_encode($emailData));
+                    error_log("[FORGOT-PASSWORD] Redis client created");
+                    
+                    $queueData = json_encode($emailData);
+                    error_log("[FORGOT-PASSWORD] Email data JSON: " . $queueData);
+                    
+                    $redis->rpush('email_queue', $queueData);
+                    error_log("[FORGOT-PASSWORD] Email queued successfully for: " . $targetEmail);
                 } catch (Exception $e) {
-                    // Continue even if redis fails
+                    error_log("[FORGOT-PASSWORD] Failed to queue email: " . $e->getMessage());
+                    error_log("[FORGOT-PASSWORD] Stack trace: " . $e->getTraceAsString());
                 }
             }
             
