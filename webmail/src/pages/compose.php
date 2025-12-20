@@ -50,23 +50,25 @@ if ($replyEmail) {
                     <form method="POST" action="?page=send" enctype="multipart/form-data">
                         <div class="card-body">
                             <div class="form-group">
-                                <label>Kepada</label>
+                                <label>Kepada (pisahkan dengan koma untuk multiple email)</label>
                                 <div class="input-group">
                                     <div class="input-group-prepend">
                                         <span class="input-group-text"><i class="fas fa-user"></i></span>
                                     </div>
-                                    <input type="email" name="to" class="form-control" required placeholder="penerima@domain.com" value="<?php echo htmlspecialchars($to); ?>">
+                                    <input type="text" name="to" class="form-control" required placeholder="penerima1@domain.com, penerima2@domain.com" value="<?php echo htmlspecialchars($to); ?>">
                                 </div>
+                                <small class="form-text text-muted">Contoh: user1@imel.id, user2@gmail.com, user3@yahoo.com</small>
                             </div>
                             
                             <div class="form-group">
-                                <label>CC (opsional)</label>
+                                <label>CC - Carbon Copy (opsional, pisahkan dengan koma)</label>
                                 <div class="input-group">
                                     <div class="input-group-prepend">
                                         <span class="input-group-text"><i class="fas fa-users"></i></span>
                                     </div>
                                     <input type="text" name="cc" class="form-control" placeholder="email1@domain.com, email2@domain.com">
                                 </div>
+                                <small class="form-text text-muted">CC akan menerima salinan email dan semua penerima bisa melihat alamat email mereka</small>
                             </div>
                             
                             <div class="form-group">

@@ -37,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$to = $_POST['to'] ?? '';
-$cc = $_POST['cc'] ?? '';
+$to = trim($_POST['to'] ?? '');
+$cc = trim($_POST['cc'] ?? '');
 $subject = $_POST['subject'] ?? '';
 $body = $_POST['body'] ?? '';
 
@@ -46,6 +46,25 @@ if (empty($to) || empty($body)) {
     $_SESSION['error'] = 'Penerima dan pesan harus diisi';
     header('Location: ?page=compose');
     exit;
+}
+
+// Parse multiple recipients (comma-separated)
+$toRecipients = array_filter(array_map('trim', explode(',', $to)));
+$ccRecipients = !empty($cc) ? array_filter(array_map('trim', explode(',', $cc))) : [];
+
+if (empty($toRecipients)) {
+    $_SESSION['error'] = 'Email penerima tidak valid';
+    header('Location: ?page=compose');
+    exit;
+}
+
+// Validate all email addresses
+foreach (array_merge($toRecipients, $ccRecipients) as $email) {
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['error'] = 'Format email tidak valid: ' . htmlspecialchars($email);
+        header('Location: ?page=compose');
+        exit;
+    }
 }
 
 // Handle file uploads
@@ -80,10 +99,14 @@ $from = $user['email'];
 // Create plain text version (strip HTML tags)
 $plainBody = strip_tags($body);
 
+// Build complete To and CC headers
+$toHeader = implode(', ', $toRecipients);
+$ccHeader = !empty($ccRecipients) ? implode(', ', $ccRecipients) : '';
+
 $emailContent = "From: $from\r\n";
-$emailContent .= "To: $to\r\n";
-if (!empty($cc)) {
-    $emailContent .= "CC: $cc\r\n";
+$emailContent .= "To: $toHeader\r\n";
+if (!empty($ccHeader)) {
+    $emailContent .= "CC: $ccHeader\r\n";
 }
 $emailContent .= "Subject: $subject\r\n";
 $emailContent .= "Message-ID: $messageId\r\n";
@@ -94,28 +117,27 @@ $emailContent .= $body;
 
 $db = getDB();
 
-// Build list of all external recipients
-$allRecipients = array_map('trim', explode(',', $to));
-if (!empty($cc)) {
-    $ccRecipients = array_map('trim', explode(',', $cc));
-    $allRecipients = array_merge($allRecipients, $ccRecipients);
-}
+// Build list of all recipients (TO + CC)
+$allRecipients = array_merge($toRecipients, $ccRecipients);
 
-// Count external recipients
-$externalCount = 0;
+// Separate internal and external recipients
+$internalRecipients = [];
+$externalRecipients = [];
 foreach ($allRecipients as $recipient) {
-    if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
-        $externalCount++;
+    if (str_ends_with($recipient, '@imel.id')) {
+        $internalRecipients[] = $recipient;
+    } else {
+        $externalRecipients[] = $recipient;
     }
 }
 
-// Check if any recipient is internal (same domain @imel.id)
-$isInternal = str_ends_with($to, '@imel.id');
-$hasExternal = $externalCount > 0;
+$hasInternal = !empty($internalRecipients);
+$hasExternal = !empty($externalRecipients);
 
 // Check rate limit for external emails
 if ($hasExternal) {
     $rateLimit = checkExternalEmailRateLimit($user['id'], $db);
+    $externalCount = count($externalRecipients);
     
     // Check if user has enough quota for all external recipients
     if ($rateLimit['remaining'] < $externalCount) {
@@ -125,119 +147,119 @@ if ($hasExternal) {
     }
 }
 
-if ($isInternal) {
-    // Internal email - save directly to database
-    // Check if recipient exists
-    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
-    $stmt->execute([$to]);
-    $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if ($recipient) {
-        // Save to recipient's inbox
-        $stmt = $db->prepare("
-            INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox', NOW(), ?)
-        ");
+// Process internal recipients
+if ($hasInternal) {
+    foreach ($internalRecipients as $internalEmail) {
+        // Check if recipient exists
+        $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+        $stmt->execute([$internalEmail]);
+        $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        $stmt->execute([
-            $messageId,
-            $recipient['id'],
-            $from,
-            $to,
-            $cc,
-            $subject,
-            $plainBody,
-            $body,
-            strlen($emailContent)
-        ]);
-        
-        $inboxEmailId = $db->lastInsertId();
-        
-        // Calculate total size for recipient
-        $recipientTotalSize = strlen($emailContent);
-        $recipientAttachmentSize = 0;
-        
-        // Save attachments for recipient
-        if (!empty($attachmentPaths)) {
+        if ($recipient) {
+            // Save to recipient's inbox
             $stmt = $db->prepare("
-                INSERT INTO attachments (email_id, filename, content_type, size, storage_path)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox', NOW(), ?)
             ");
             
-            foreach ($attachmentPaths as $attachment) {
-                $stmt->execute([
-                    $inboxEmailId,
-                    $attachment['filename'],
-                    $attachment['type'],
-                    $attachment['size'],
-                    $attachment['path']
-                ]);
-                $recipientAttachmentSize += $attachment['size'];
-            }
-        }
-        
-        // Update recipient quota
-        $recipientQuotaIncrease = $recipientTotalSize + $recipientAttachmentSize;
-        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
-        $stmt->execute([$recipientQuotaIncrease, $recipient['id']]);
-        
-        // Save to sender's sent folder
-        $stmt = $db->prepare("
-            INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
-        ");
-        
-        $stmt->execute([
-            $messageId . '-sent',
-            $user['id'],
-            $from,
-            $to,
-            $cc,
-            $subject,
-            $plainBody,
-            $body,
-            strlen($emailContent)
-        ]);
-        
-        $sentEmailId = $db->lastInsertId();
-        
-        // Calculate total size for sender
-        $senderTotalSize = strlen($emailContent);
-        $senderAttachmentSize = 0;
-        
-        // Save attachments for sender
-        if (!empty($attachmentPaths)) {
-            $stmt = $db->prepare("
-                INSERT INTO attachments (email_id, filename, content_type, size, storage_path)
-                VALUES (?, ?, ?, ?, ?)
-            ");
+            $stmt->execute([
+                $messageId . '-' . $internalEmail,
+                $recipient['id'],
+                $from,
+                $toHeader,
+                $ccHeader,
+                $subject,
+                $plainBody,
+                $body,
+                strlen($emailContent)
+            ]);
             
-            foreach ($attachmentPaths as $attachment) {
-                $stmt->execute([
-                    $sentEmailId,
-                    $attachment['filename'],
-                    $attachment['type'],
-                    $attachment['size'],
-                    $attachment['path']
-                ]);
-                $senderAttachmentSize += $attachment['size'];
+            $inboxEmailId = $db->lastInsertId();
+            
+            // Calculate total size for recipient
+            $recipientTotalSize = strlen($emailContent);
+            $recipientAttachmentSize = 0;
+            
+            // Save attachments for recipient
+            if (!empty($attachmentPaths)) {
+                $stmt = $db->prepare("
+                    INSERT INTO attachments (email_id, filename, content_type, size, storage_path)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                
+                foreach ($attachmentPaths as $attachment) {
+                    $stmt->execute([
+                        $inboxEmailId,
+                        $attachment['filename'],
+                        $attachment['type'],
+                        $attachment['size'],
+                        $attachment['path']
+                    ]);
+                    $recipientAttachmentSize += $attachment['size'];
+                }
             }
+            
+            // Update recipient quota
+            $recipientQuotaIncrease = $recipientTotalSize + $recipientAttachmentSize;
+            $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+            $stmt->execute([$recipientQuotaIncrease, $recipient['id']]);
         }
-        
-        // Update sender quota
-        $senderQuotaIncrease = $senderTotalSize + $senderAttachmentSize;
-        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
-        $stmt->execute([$senderQuotaIncrease, $user['id']]);
-        
-        $_SESSION['success'] = 'Email berhasil dikirim!';
-    } else {
-        $_SESSION['error'] = 'Penerima tidak ditemukan';
     }
-} else {
-    // External email - send via queue
+}
+
+// Save to sender's sent folder (only once)
+$stmt = $db->prepare("
+    INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
+");
+
+$stmt->execute([
+    $messageId . '-sent',
+    $user['id'],
+    $from,
+    $toHeader,
+    $ccHeader,
+    $subject,
+    $plainBody,
+    $body,
+    strlen($emailContent)
+]);
+
+$sentEmailId = $db->lastInsertId();
+
+// Calculate total size for sender
+$senderTotalSize = strlen($emailContent);
+$senderAttachmentSize = 0;
+
+// Save attachments for sender
+if (!empty($attachmentPaths)) {
+    $stmt = $db->prepare("
+        INSERT INTO attachments (email_id, filename, content_type, size, storage_path)
+        VALUES (?, ?, ?, ?, ?)
+    ");
+    
+    foreach ($attachmentPaths as $attachment) {
+        $stmt->execute([
+            $sentEmailId,
+            $attachment['filename'],
+            $attachment['type'],
+            $attachment['size'],
+            $attachment['path']
+        ]);
+        $senderAttachmentSize += $attachment['size'];
+    }
+}
+
+// Update sender quota
+$senderQuotaIncrease = $senderTotalSize + $senderAttachmentSize;
+$stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
+$stmt->execute([$senderQuotaIncrease, $user['id']]);
+
+// Process external recipients
+if ($hasExternal) {
     try {
         // Log untuk debugging
-        error_log("[WEBMAIL] Sending external email to: " . $to);
+        error_log("[WEBMAIL] Sending external email to: " . implode(', ', $externalRecipients));
         
         // Connect to Redis
         $redisHost = getenv('REDIS_HOST') ?: 'redis';
@@ -285,85 +307,39 @@ if ($isInternal) {
             error_log("[WEBMAIL] Total attachments prepared: " . count($attachmentsData));
         }
         
-        // Push to queue
-        $emailJob = [
-            'from' => $from,
-            'to' => $to,
-            'cc' => $cc,
-            'subject' => $subject,
-            'body' => $body,  // HTML body
-            'html_body' => '',  // Will be detected by worker
-            'attachments' => $attachmentsData,
-            'received_at' => date('Y-m-d H:i:s')
-        ];
-        
-        error_log("[WEBMAIL] Pushing email to queue");
-        $redis->rpush('email_queue', json_encode($emailJob));
-        error_log("[WEBMAIL] Email pushed to queue successfully");
-        
-        // Log external email for rate limiting (all external recipients)
-        foreach ($allRecipients as $recipient) {
-            if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
-                logExternalEmail($user['id'], $recipient, $db);
-                error_log("[WEBMAIL] External email logged for rate limiting: " . $recipient);
-            }
-        }
-        
-        // Save to sent folder
-        $stmt = $db->prepare("
-            INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, sent_at, size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
-        ");
-        
-        $stmt->execute([
-            $messageId,
-            $user['id'],
-            $from,
-            $to,
-            $cc,
-            $subject,
-            $plainBody,
-            $body,
-            strlen($emailContent)
-        ]);
-        
-        $emailId = $db->lastInsertId();
-        
-        // Calculate total size for sender
-        $senderTotalSize = strlen($emailContent);
-        $senderAttachmentSize = 0;
-        
-        // Save attachments
-        if (!empty($attachmentPaths)) {
-            $stmt = $db->prepare("
-                INSERT INTO attachments (email_id, filename, content_type, size, storage_path)
-                VALUES (?, ?, ?, ?, ?)
-            ");
+        // Send email to each external recipient separately
+        foreach ($externalRecipients as $externalEmail) {
+            // Push to queue
+            $emailJob = [
+                'from' => $from,
+                'to' => $externalEmail,
+                'cc' => $ccHeader,
+                'subject' => $subject,
+                'body' => $body,  // HTML body
+                'html_body' => '',  // Will be detected by worker
+                'attachments' => $attachmentsData,
+                'received_at' => date('Y-m-d H:i:s')
+            ];
             
-            foreach ($attachmentPaths as $attachment) {
-                $stmt->execute([
-                    $emailId,
-                    $attachment['filename'],
-                    $attachment['type'],
-                    $attachment['size'],
-                    $attachment['path']
-                ]);
-                $senderAttachmentSize += $attachment['size'];
-            }
+            error_log("[WEBMAIL] Pushing email to queue for: " . $externalEmail);
+            $redis->rpush('email_queue', json_encode($emailJob));
+            error_log("[WEBMAIL] Email pushed to queue successfully");
+            
+            // Log external email for rate limiting
+            logExternalEmail($user['id'], $externalEmail, $db);
+            error_log("[WEBMAIL] External email logged for rate limiting: " . $externalEmail);
         }
-        
-        // Update sender quota
-        $senderQuotaIncrease = $senderTotalSize + $senderAttachmentSize;
-        $stmt = $db->prepare("UPDATE users SET quota_used = quota_used + ? WHERE id = ?");
-        $stmt->execute([$senderQuotaIncrease, $user['id']]);
-        
-        $_SESSION['success'] = 'Email berhasil dikirim!';
     } catch (Exception $e) {
         error_log("[WEBMAIL] ERROR: " . $e->getMessage());
         error_log("[WEBMAIL] Stack trace: " . $e->getTraceAsString());
         $_SESSION['error'] = 'Gagal mengirim email: ' . $e->getMessage();
+        header('Location: ?page=compose');
+        exit;
     }
 }
 
+// Success message
+$totalRecipients = count($allRecipients);
+$_SESSION['success'] = "Email berhasil dikirim ke {$totalRecipients} penerima!";
 header('Location: ?page=inbox&folder=sent');
 exit;

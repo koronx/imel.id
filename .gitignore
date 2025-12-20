@@ -26,3 +26,5 @@ Thumbs.db
 mailserver/.env
 webmail/.env
 webmail/.env.example
+
+.env
