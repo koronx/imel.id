@@ -1,0 +1,412 @@
+<?php
+header('Content-Type: application/json');
+
+// Handle preflight requests (CORS is handled by Apache)
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+// Load Composer autoload
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',
+    '/var/www/html/vendor/autoload.php',
+];
+
+foreach ($autoloadPaths as $path) {
+    if (file_exists($path)) {
+        require_once $path;
+        break;
+    }
+}
+
+// Database configuration
+$DB_HOST = getenv('DB_HOST') ?: 'database';
+$DB_PORT = getenv('DB_PORT') ?: '5432';
+$DB_NAME = getenv('DB_NAME') ?: 'maildb';
+$DB_USER = getenv('DB_USER') ?: 'mailuser';
+$DB_PASSWORD = getenv('DB_PASSWORD') ?: 'mailpassword';
+
+// Database connection
+function getDB() {
+    global $DB_HOST, $DB_PORT, $DB_NAME, $DB_USER, $DB_PASSWORD;
+    
+    try {
+        $pdo = new PDO(
+            "pgsql:host=$DB_HOST;port=$DB_PORT;dbname=$DB_NAME",
+            $DB_USER,
+            $DB_PASSWORD,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        return $pdo;
+    } catch (PDOException $e) {
+        sendError("Database connection failed: " . $e->getMessage());
+    }
+}
+
+// Helper functions
+function sendSuccess($data = [], $message = null) {
+    $response = ['success' => true];
+    if ($message) $response['message'] = $message;
+    if (!empty($data)) $response = array_merge($response, $data);
+    echo json_encode($response);
+    exit;
+}
+
+function sendError($message, $code = 400) {
+    http_response_code($code);
+    echo json_encode(['success' => false, 'message' => $message]);
+    exit;
+}
+
+function getJsonInput() {
+    $input = file_get_contents('php://input');
+    return json_decode($input, true) ?: [];
+}
+
+function generateToken($userId) {
+    return base64_encode(random_bytes(32) . '|' . $userId . '|' . time());
+}
+
+function validateToken() {
+    $headers = getallheaders();
+    $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+    
+    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+        sendError('Unauthorized', 401);
+    }
+    
+    $token = $matches[1];
+    $decoded = base64_decode($token);
+    $parts = explode('|', $decoded);
+    
+    if (count($parts) !== 3) {
+        sendError('Invalid token', 401);
+    }
+    
+    $userId = $parts[1];
+    $timestamp = $parts[2];
+    
+    // Token expires after 30 days
+    if (time() - $timestamp > 30 * 24 * 60 * 60) {
+        sendError('Token expired', 401);
+    }
+    
+    return $userId;
+}
+
+// Get action
+$action = $_GET['action'] ?? '';
+
+// Routes that don't require authentication
+if ($action === 'login') {
+    $input = getJsonInput();
+    $email = $input['email'] ?? '';
+    $password = $input['password'] ?? '';
+    
+    if (empty($email) || empty($password)) {
+        sendError('Email dan password harus diisi');
+    }
+    
+    $db = getDB();
+    $stmt = $db->prepare("SELECT id, email, password, full_name, secondary_email, quota_bytes, quota_used FROM users WHERE email = ?");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user || !password_verify($password, $user['password'])) {
+        sendError('Email atau password salah', 401);
+    }
+    
+    $token = generateToken($user['id']);
+    
+    sendSuccess([
+        'token' => $token,
+        'user' => [
+            'id' => $user['id'],
+            'email' => $user['email'],
+            'full_name' => $user['full_name'],
+            'secondary_email' => $user['secondary_email'],
+            'quota_bytes' => (int)$user['quota_bytes'],
+            'quota_used' => (int)$user['quota_used']
+        ]
+    ], 'Login berhasil');
+}
+
+if ($action === 'register') {
+    $input = getJsonInput();
+    $email = $input['email'] ?? '';
+    $password = $input['password'] ?? '';
+    $fullName = $input['full_name'] ?? '';
+    
+    if (empty($email) || empty($password) || empty($fullName)) {
+        sendError('Semua field harus diisi');
+    }
+    
+    if (strlen($password) < 8) {
+        sendError('Password minimal 8 karakter');
+    }
+    
+    $db = getDB();
+    
+    // Check if email already exists
+    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+    $stmt->execute([$email]);
+    if ($stmt->fetch()) {
+        sendError('Email sudah terdaftar');
+    }
+    
+    // Create user
+    $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+    $stmt = $db->prepare("INSERT INTO users (email, password, full_name) VALUES (?, ?, ?)");
+    
+    try {
+        $stmt->execute([$email, $passwordHash, $fullName]);
+        sendSuccess([], 'Registrasi berhasil');
+    } catch (PDOException $e) {
+        sendError('Registrasi gagal: ' . $e->getMessage());
+    }
+}
+
+// All routes below require authentication
+$userId = validateToken();
+
+if ($action === 'get_user') {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT id, email, full_name, secondary_email, quota_bytes, quota_used FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user) {
+        sendError('User tidak ditemukan', 404);
+    }
+    
+    $user['quota_bytes'] = (int)$user['quota_bytes'];
+    $user['quota_used'] = (int)$user['quota_used'];
+    
+    sendSuccess(['user' => $user]);
+}
+
+if ($action === 'get_inbox') {
+    $page = (int)($_GET['page'] ?? 1);
+    $limit = (int)($_GET['limit'] ?? 20);
+    $offset = ($page - 1) * $limit;
+    
+    $db = getDB();
+    
+    // Get inbox emails using user_id and folder
+    $stmt = $db->prepare("
+        SELECT id, from_email as sender, to_email as recipient, subject, body, received_at as created_at, is_read,
+               (SELECT COUNT(*) FROM attachments WHERE email_id = emails.id) > 0 as has_attachment
+        FROM emails 
+        WHERE user_id = ? AND folder = 'inbox'
+        ORDER BY received_at DESC 
+        LIMIT ? OFFSET ?
+    ");
+    $stmt->execute([$userId, $limit, $offset]);
+    $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    sendSuccess(['emails' => $emails]);
+}
+
+if ($action === 'get_sent') {
+    $page = (int)($_GET['page'] ?? 1);
+    $limit = (int)($_GET['limit'] ?? 20);
+    $offset = ($page - 1) * $limit;
+    
+    $db = getDB();
+    
+    // Get sent emails using user_id and folder
+    $stmt = $db->prepare("
+        SELECT id, from_email as sender, to_email as recipient, subject, body, received_at as created_at, true as is_read,
+               (SELECT COUNT(*) FROM attachments WHERE email_id = emails.id) > 0 as has_attachment
+        FROM emails 
+        WHERE user_id = ? AND folder = 'sent'
+        ORDER BY received_at DESC 
+        LIMIT ? OFFSET ?
+    ");
+    $stmt->execute([$userId, $limit, $offset]);
+    $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    sendSuccess(['emails' => $emails]);
+}
+
+if ($action === 'get_email') {
+    $emailId = (int)($_GET['id'] ?? 0);
+    
+    if (!$emailId) {
+        sendError('Email ID harus diisi');
+    }
+    
+    $db = getDB();
+    
+    // Get email detail using user_id
+    $stmt = $db->prepare("
+        SELECT id, from_email as sender, to_email as recipient, subject, body, received_at as created_at, is_read
+        FROM emails 
+        WHERE id = ? AND user_id = ?
+    ");
+    $stmt->execute([$emailId, $userId]);
+    $email = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$email) {
+        sendError('Email tidak ditemukan', 404);
+    }
+    
+    // Get attachments
+    $stmt = $db->prepare("SELECT id, filename, content_type as mime_type, size FROM attachments WHERE email_id = ?");
+    $stmt->execute([$emailId]);
+    $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    sendSuccess(['email' => $email, 'attachments' => $attachments]);
+}
+
+if ($action === 'send_email') {
+    $input = getJsonInput();
+    $to = $input['to'] ?? '';
+    $subject = $input['subject'] ?? '';
+    $body = $input['body'] ?? '';
+    $cc = $input['cc'] ?? [];
+    $bcc = $input['bcc'] ?? [];
+    
+    if (empty($to) || empty($subject) || empty($body)) {
+        sendError('Penerima, subjek, dan isi email harus diisi');
+    }
+    
+    $db = getDB();
+    
+    // Get user email
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $userEmail = $stmt->fetchColumn();
+    
+    // Get recipient user_id if exists
+    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+    $stmt->execute([$to]);
+    $recipientUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    $recipientUserId = $recipientUser ? $recipientUser['id'] : null;
+    
+    $db->beginTransaction();
+    try {
+        // Insert email to sender's sent folder
+        $stmt = $db->prepare("INSERT INTO emails (user_id, from_email, to_email, subject, body, folder) VALUES (?, ?, ?, ?, ?, 'sent')");
+        $stmt->execute([$userId, $userEmail, $to, $subject, $body]);
+        $emailId = $db->lastInsertId();
+        
+        // If recipient exists in our system, also insert to their inbox
+        if ($recipientUserId) {
+            $stmt = $db->prepare("INSERT INTO emails (user_id, from_email, to_email, subject, body, folder) VALUES (?, ?, ?, ?, ?, 'inbox')");
+            $stmt->execute([$recipientUserId, $userEmail, $to, $subject, $body]);
+        }
+        
+        $db->commit();
+        
+        // TODO: Send to mail server
+        // For now, just store in database
+        
+        sendSuccess(['email_id' => $emailId], 'Email berhasil dikirim');
+    } catch (PDOException $e) {
+        sendError('Gagal mengirim email: ' . $e->getMessage());
+    }
+}
+
+if ($action === 'mark_read') {
+    $input = getJsonInput();
+    $emailId = (int)($input['email_id'] ?? 0);
+    
+    if (!$emailId) {
+        sendError('Email ID harus diisi');
+    }
+    
+    $db = getDB();
+    
+    // Mark as read using user_id
+    $stmt = $db->prepare("UPDATE emails SET is_read = true WHERE id = ? AND user_id = ?");
+    $stmt->execute([$emailId, $userId]);
+    
+    sendSuccess([], 'Email ditandai sudah dibaca');
+}
+
+if ($action === 'delete_email') {
+    $input = getJsonInput();
+    $emailId = (int)($input['email_id'] ?? 0);
+    
+    if (!$emailId) {
+        sendError('Email ID harus diisi');
+    }
+    
+    $db = getDB();
+    
+    // Delete email using user_id
+    $stmt = $db->prepare("DELETE FROM emails WHERE id = ? AND user_id = ?");
+    $stmt->execute([$emailId, $userId]);
+    
+    if ($stmt->rowCount() > 0) {
+        sendSuccess([], 'Email berhasil dihapus');
+    } else {
+        sendError('Email tidak ditemukan atau tidak dapat dihapus', 404);
+    }
+}
+
+// Admin endpoints
+if ($action === 'admin_get_users') {
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    // Get all users with quota info
+    $stmt = $db->prepare("
+        SELECT id, email, full_name, quota_bytes, quota_used,
+               ROUND((quota_used::NUMERIC / NULLIF(quota_bytes, 0)::NUMERIC) * 100, 2) as usage_percent
+        FROM users
+        ORDER BY email
+    ");
+    $stmt->execute();
+    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Convert to integers
+    foreach ($users as &$user) {
+        $user['quota_bytes'] = (int)$user['quota_bytes'];
+        $user['quota_used'] = (int)$user['quota_used'];
+        $user['usage_percent'] = (float)$user['usage_percent'];
+    }
+    
+    sendSuccess(['users' => $users]);
+}
+
+if ($action === 'admin_update_quota') {
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    $input = getJsonInput();
+    $targetUserId = (int)($input['user_id'] ?? 0);
+    $newQuota = (int)($input['quota_bytes'] ?? 0);
+    
+    if (!$targetUserId || $newQuota < 0) {
+        sendError('User ID dan quota harus diisi dengan benar');
+    }
+    
+    // Update quota
+    $stmt = $db->prepare("UPDATE users SET quota_bytes = ? WHERE id = ?");
+    $stmt->execute([$newQuota, $targetUserId]);
+    
+    if ($stmt->rowCount() > 0) {
+        sendSuccess([], 'Quota berhasil diupdate');
+    } else {
+        sendError('User tidak ditemukan', 404);
+    }
+}
+
+sendError('Invalid action', 400);

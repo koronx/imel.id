@@ -56,7 +56,7 @@ function getCurrentUser() {
     }
     
     $db = getDB();
-    $stmt = $db->prepare("SELECT id, email, full_name FROM users WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, email, full_name, quota_bytes, quota_used FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     return $stmt->fetch(PDO::FETCH_ASSOC);
 }
@@ -310,7 +310,276 @@ if ($page === 'download' && isLoggedIn()) {
         .login-page .login-box {
             background: white !important;
         }
+        
+        /* ========== RESPONSIVE DESIGN FOR MOBILE ========== */
+        @media (max-width: 768px) {
+            /* Hide sidebar by default on mobile */
+            .main-sidebar {
+                transform: translateX(-250px);
+                transition: transform 0.3s ease;
+            }
+            
+            .main-sidebar.sidebar-open {
+                transform: translateX(0);
+            }
+            
+            /* Adjust content wrapper */
+            .content-wrapper {
+                margin-left: 0 !important;
+            }
+            
+            /* Mobile navbar */
+            .navbar {
+                padding: 0.5rem 1rem;
+            }
+            
+            .navbar-nav {
+                flex-direction: row;
+            }
+            
+            /* Hide text on mobile, show only icons */
+            .nav-item .d-none.d-sm-inline-block {
+                display: none !important;
+            }
+            
+            .nav-item .d-none.d-sm-inline {
+                display: none !important;
+            }
+            
+            /* Storage quota card in sidebar - make it compact */
+            .sidebar .card {
+                margin: 0.5rem !important;
+            }
+            
+            .sidebar .card-body {
+                padding: 0.5rem !important;
+            }
+            
+            /* Email list - stack on mobile */
+            .mailbox-messages table {
+                font-size: 0.875rem;
+            }
+            
+            .mailbox-messages td {
+                padding: 0.5rem !important;
+            }
+            
+            /* Hide some columns on mobile */
+            .mailbox-messages .mailbox-date {
+                font-size: 0.75rem;
+            }
+            
+            /* Compose form adjustments */
+            .form-group label {
+                font-size: 0.875rem;
+            }
+            
+            .form-control {
+                font-size: 0.875rem;
+            }
+            
+            /* Card adjustments */
+            .card {
+                margin-bottom: 1rem !important;
+            }
+            
+            .card-header {
+                padding: 0.75rem;
+            }
+            
+            .card-body {
+                padding: 0.75rem;
+            }
+            
+            /* Button groups */
+            .btn-group .btn {
+                font-size: 0.875rem;
+                padding: 0.375rem 0.75rem;
+            }
+            
+            /* Pagination */
+            .pagination {
+                font-size: 0.875rem;
+            }
+            
+            .page-item {
+                margin: 0 2px;
+            }
+            
+            /* Dashboard - stack info boxes */
+            .small-box {
+                margin-bottom: 1rem;
+            }
+            
+            /* Login box */
+            .login-box {
+                width: 95% !important;
+                margin: 1rem auto !important;
+            }
+            
+            /* Table responsive */
+            .table-responsive {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* Forms */
+            .form-inline {
+                flex-direction: column;
+                align-items: stretch !important;
+            }
+            
+            .form-inline .form-group {
+                margin-bottom: 0.5rem;
+                width: 100%;
+            }
+            
+            .form-inline input,
+            .form-inline select,
+            .form-inline button {
+                width: 100% !important;
+            }
+            
+            /* Dropdown menus */
+            .dropdown-menu {
+                position: absolute;
+                left: auto !important;
+                right: 0;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            /* Extra small devices */
+            .navbar-brand {
+                font-size: 1rem;
+            }
+            
+            .brand-image {
+                width: 30px !important;
+                height: 30px !important;
+            }
+            
+            /* Hide even more on very small screens */
+            .mailbox-messages .mailbox-name {
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            /* Stack all columns */
+            .col-lg-3, .col-lg-6, .col-md-6, .col-md-12 {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+            
+            /* Smaller text */
+            body {
+                font-size: 0.875rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+            
+            h2 {
+                font-size: 1.25rem;
+            }
+            
+            h3 {
+                font-size: 1.125rem;
+            }
+        }
+        
+        /* Sidebar overlay for mobile */
+        @media (max-width: 768px) {
+            .sidebar-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 1030;
+                display: none;
+            }
+            
+            .sidebar-overlay.active {
+                display: block;
+            }
+            
+            .main-sidebar {
+                position: fixed;
+                z-index: 1031;
+            }
+            
+            /* Ensure menu items are clickable */
+            .main-sidebar .nav-link {
+                position: relative;
+                z-index: 1032;
+            }
+        }
     </style>
+    <script>
+        // Mobile sidebar toggle
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.innerWidth <= 768) {
+                const pushmenuBtn = document.querySelector('[data-widget="pushmenu"]');
+                const sidebar = document.querySelector('.main-sidebar');
+                const body = document.body;
+                
+                if (pushmenuBtn && sidebar) {
+                    // Create overlay
+                    const overlay = document.createElement('div');
+                    overlay.className = 'sidebar-overlay';
+                    body.appendChild(overlay);
+                    
+                    // Disable AdminLTE default pushmenu
+                    pushmenuBtn.removeAttribute('data-widget');
+                    
+                    // Custom toggle sidebar
+                    pushmenuBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const isOpen = sidebar.classList.contains('sidebar-open');
+                        if (isOpen) {
+                            sidebar.classList.remove('sidebar-open');
+                            overlay.classList.remove('active');
+                            body.classList.remove('sidebar-open');
+                        } else {
+                            sidebar.classList.add('sidebar-open');
+                            overlay.classList.add('active');
+                            body.classList.add('sidebar-open');
+                        }
+                    });
+                    
+                    // Close sidebar when overlay clicked
+                    overlay.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        sidebar.classList.remove('sidebar-open');
+                        overlay.classList.remove('active');
+                        body.classList.remove('sidebar-open');
+                    });
+                    
+                    // Close sidebar when menu item clicked - use capture phase
+                    const menuLinks = sidebar.querySelectorAll('.nav-link');
+                    menuLinks.forEach(function(link) {
+                        link.addEventListener('click', function(e) {
+                            const href = this.getAttribute('href');
+                            // Only close for actual navigation links
+                            if (href && href !== '#' && href !== 'javascript:void(0)' && !href.startsWith('javascript:')) {
+                                // Don't prevent default, let navigation happen
+                                sidebar.classList.remove('sidebar-open');
+                                overlay.classList.remove('active');
+                                body.classList.remove('sidebar-open');
+                            }
+                        }, false);
+                    });
+                }
+            }
+        });
+    </script>
 </head>
 <body class="hold-transition sidebar-mini layout-fixed login-page">
     <?php if (isLoggedIn()): ?>
@@ -417,6 +686,38 @@ if ($page === 'download' && isLoggedIn()) {
                         </li>
                     </ul>
                 </nav>
+                
+                <!-- Storage Quota Info -->
+                <?php 
+                $user = getCurrentUser();
+                $quotaBytes = $user['quota_bytes'] ?? 1073741824;
+                $quotaUsed = $user['quota_used'] ?? 0;
+                $quotaPercent = $quotaBytes > 0 ? round(($quotaUsed / $quotaBytes) * 100, 1) : 0;
+                $quotaUsedMB = round($quotaUsed / (1024 * 1024), 1);
+                $quotaTotalMB = round($quotaBytes / (1024 * 1024), 0);
+                ?>
+                <div class="mt-4 mb-3 px-3">
+                    <div class="card" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                        <div class="card-body p-2">
+                            <h6 class="text-white mb-2">
+                                <i class="fas fa-hdd"></i> Storage
+                            </h6>
+                            <div class="progress mb-2" style="height: 20px;">
+                                <div class="progress-bar <?php echo $quotaPercent > 90 ? 'bg-danger' : 'bg-info'; ?>" 
+                                     role="progressbar" 
+                                     style="width: <?php echo min($quotaPercent, 100); ?>%"
+                                     aria-valuenow="<?php echo $quotaPercent; ?>" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                    <?php echo $quotaPercent; ?>%
+                                </div>
+                            </div>
+                            <small class="text-white">
+                                <?php echo $quotaUsedMB; ?> MB / <?php echo $quotaTotalMB; ?> MB
+                            </small>
+                        </div>
+                    </div>
+                </div>
             </div>
         </aside>
 

@@ -37,7 +37,7 @@ $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
             <div class="col-sm-6">
                 <div class="float-right">
-                    <a href="?page=inbox" class="btn btn-default">
+                    <a href="?page=inbox" class="btn btn-secondary">
                         <i class="fas fa-arrow-left"></i> Kembali
                     </a>
                     <a href="?page=compose&reply=<?php echo $emailId; ?>" class="btn btn-primary">

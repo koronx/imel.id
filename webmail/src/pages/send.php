@@ -173,7 +173,7 @@ if ($isInternal) {
         
         // Save to sender's sent folder
         $stmt = $db->prepare("
-            INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, sent_at, size)
+            INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
         ");
         

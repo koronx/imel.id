@@ -8,11 +8,13 @@ $currentPage = max(1, intval($_GET['p'] ?? 1));
 $perPage = max(10, min(100, intval($_GET['per_page'] ?? 25))); // Min 10, Max 100, Default 25
 $offset = ($currentPage - 1) * $perPage;
 
-// Build query with search
+// Build query with search - use user_id and folder consistently
 $db = getDB();
-$params = [$user['id'], $folder];
-$searchCondition = '';
 
+$whereClause = "user_id = ? AND folder = ?";
+$params = [$user['id'], $folder];
+
+$searchCondition = '';
 if (!empty($search)) {
     $searchCondition = " AND (from_email ILIKE ? OR to_email ILIKE ? OR subject ILIKE ? OR body ILIKE ?)";
     $searchParam = '%' . $search . '%';
@@ -20,7 +22,7 @@ if (!empty($search)) {
 }
 
 // Get total count
-$stmt = $db->prepare("SELECT COUNT(*) as total FROM emails WHERE user_id = ? AND folder = ?" . $searchCondition);
+$stmt = $db->prepare("SELECT COUNT(*) as total FROM emails WHERE " . $whereClause . $searchCondition);
 $stmt->execute($params);
 $totalEmails = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 $totalPages = ceil($totalEmails / $perPage);
@@ -30,7 +32,7 @@ $stmt = $db->prepare("
     SELECT e.*, 
            (SELECT COUNT(*) FROM attachments WHERE email_id = e.id) as attachment_count
     FROM emails e
-    WHERE user_id = ? AND folder = ?" . $searchCondition . "
+    WHERE " . $whereClause . $searchCondition . "
     ORDER BY received_at DESC
     LIMIT ? OFFSET ?
 ");

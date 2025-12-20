@@ -48,9 +48,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_rate_limit'])) 
     }
 }
 
+// Handle Update Quota
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_quota'])) {
+    $targetUserId = (int)($_POST['user_id'] ?? 0);
+    $newQuotaGB = (float)($_POST['quota_gb'] ?? 0);
+    
+    if ($targetUserId <= 0 || $newQuotaGB < 0) {
+        $_SESSION['error'] = 'User ID dan quota harus valid';
+    } else {
+        try {
+            $newQuotaBytes = (int)($newQuotaGB * 1024 * 1024 * 1024);
+            
+            $stmt = $db->prepare("UPDATE users SET quota_bytes = ? WHERE id = ?");
+            $stmt->execute([$newQuotaBytes, $targetUserId]);
+            
+            if ($stmt->rowCount() > 0) {
+                $_SESSION['success'] = 'Quota berhasil diupdate';
+            } else {
+                $_SESSION['error'] = 'User tidak ditemukan';
+            }
+        } catch (Exception $e) {
+            $_SESSION['error'] = 'Error: ' . $e->getMessage();
+        }
+        
+        header('Location: ?page=dashboard');
+        exit;
+    }
+}
+
 // Total Users
 $stmt = $db->query("SELECT COUNT(*) as total FROM users");
 $totalUsers = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+// Get all users with quota info
+$stmt = $db->query("
+    SELECT id, email, full_name, quota_bytes, quota_used,
+           ROUND((quota_used::NUMERIC / NULLIF(quota_bytes, 0)::NUMERIC) * 100, 1) as usage_percent
+    FROM users
+    ORDER BY email
+");
+$allUsers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Newest Users (last 5)
 $stmt = $db->query("SELECT email, full_name, created_at FROM users ORDER BY created_at DESC LIMIT 5");
@@ -245,6 +282,67 @@ foreach ($hourlyStats as $stat) {
                         <small class="form-text text-muted mt-2">
                             <i class="fas fa-info-circle"></i> Reset semua rate limit untuk user tertentu (email eksternal & forgot password)
                         </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Quota Management -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-primary card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-hdd"></i> Manajemen Kuota User</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Email</th>
+                                        <th>Nama</th>
+                                        <th>Kuota</th>
+                                        <th>Terpakai</th>
+                                        <th style="width: 200px;">Progress</th>
+                                        <th style="width: 150px;">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($allUsers as $u): 
+                                        $quotaGB = round($u['quota_bytes'] / (1024 * 1024 * 1024), 2);
+                                        $usedMB = round($u['quota_used'] / (1024 * 1024), 1);
+                                        $usedGB = round($u['quota_used'] / (1024 * 1024 * 1024), 2);
+                                        $percent = $u['usage_percent'] ?? 0;
+                                        $progressColor = $percent > 90 ? 'danger' : ($percent > 75 ? 'warning' : 'success');
+                                    ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($u['email']); ?></td>
+                                        <td><?php echo htmlspecialchars($u['full_name']); ?></td>
+                                        <td><?php echo $quotaGB; ?> GB</td>
+                                        <td><?php echo $usedMB < 1024 ? $usedMB . ' MB' : $usedGB . ' GB'; ?></td>
+                                        <td>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-<?php echo $progressColor; ?>" 
+                                                     role="progressbar" 
+                                                     style="width: <?php echo min($percent, 100); ?>%"
+                                                     aria-valuenow="<?php echo $percent; ?>" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100">
+                                                    <?php echo $percent; ?>%
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-primary" 
+                                                    onclick="editQuota(<?php echo $u['id']; ?>, '<?php echo htmlspecialchars($u['email']); ?>', <?php echo $quotaGB; ?>)">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -458,4 +556,27 @@ foreach ($hourlyStats as $stat) {
             }
         }
     });
+    
+    // Edit Quota Modal
+    function editQuota(userId, email, currentQuota) {
+        const newQuota = prompt(`Edit kuota untuk ${email}\n\nKuota saat ini: ${currentQuota} GB\nMasukkan kuota baru (dalam GB):`, currentQuota);
+        
+        if (newQuota !== null) {
+            const quotaFloat = parseFloat(newQuota);
+            if (isNaN(quotaFloat) || quotaFloat < 0) {
+                alert('Kuota harus berupa angka positif');
+                return;
+            }
+            
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = `
+                <input type="hidden" name="update_quota" value="1">
+                <input type="hidden" name="user_id" value="${userId}">
+                <input type="hidden" name="quota_gb" value="${quotaFloat}">
+            `;
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
 </script>
