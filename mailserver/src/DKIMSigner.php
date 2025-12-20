@@ -84,6 +84,11 @@ class DKIMSigner {
         // Data to sign
         $dataToSign = $canonicalizedHeaders . $canonicalizedDkimHeader;
         
+        // Debug log
+        error_log("[DKIM DEBUG] Headers to sign:\n" . $canonicalizedHeaders);
+        error_log("[DKIM DEBUG] DKIM header to sign:\n" . $canonicalizedDkimHeader);
+        error_log("[DKIM DEBUG] Full data to sign length: " . strlen($dataToSign));
+        
         // Sign with private key
         $privateKeyResource = openssl_pkey_get_private($this->privateKey);
         if (!$privateKeyResource) {
