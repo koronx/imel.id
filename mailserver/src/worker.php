@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/DKIMSigner.php';
 
 use Predis\Client as RedisClient;
 
@@ -285,6 +286,9 @@ function sendExternalEmail($emailJob) {
             // Build email content
             $emailContent = buildEmailContent($emailJob);
             
+            // Add DKIM signature
+            $emailContent = addDKIMSignature($emailContent);
+            
             // Debug: Print first 800 chars
             if (!empty($emailJob['attachments'])) {
                 echo "[DEBUG EMAIL START]\n";
@@ -331,6 +335,40 @@ function readSmtpResponse($socket) {
         }
     }
     return $response;
+}
+
+function addDKIMSignature($emailContent) {
+    try {
+        // Split headers and body
+        $parts = explode("\r\n\r\n", $emailContent, 2);
+        if (count($parts) < 2) {
+            debugLog("[DKIM] Failed to parse email content");
+            return $emailContent;
+        }
+        
+        $headerBlock = $parts[0];
+        $body = $parts[1];
+        
+        // Parse headers into array
+        $headers = explode("\r\n", $headerBlock);
+        
+        // Initialize DKIM signer
+        $dkimSigner = new DKIMSigner('imel.id', 'default', __DIR__ . '/../dkim/private.key');
+        
+        // Sign the message
+        $dkimSignature = $dkimSigner->signMessage($headers, $body);
+        
+        // Add DKIM-Signature as first header
+        $signedContent = $dkimSignature . "\r\n" . $emailContent;
+        
+        debugLog("[DKIM] Email signed successfully");
+        
+        return $signedContent;
+    } catch (Exception $e) {
+        debugLog("[DKIM] Signing failed", $e->getMessage());
+        // Return original content if signing fails
+        return $emailContent;
+    }
 }
 
 function buildEmailContent($emailJob) {

@@ -23,6 +23,9 @@ RUN composer install --no-dev --optimize-autoloader
 # Copy application files
 COPY src/ ./
 
+# Copy DKIM keys
+COPY dkim/ /app/dkim/
+
 # Expose ports
 EXPOSE 25 143 587 993
 
