@@ -564,11 +564,34 @@ function processEmail($emailJob) {
             'subject' => $emailJob['subject']
         ]);
         
+        // If email was saved to temp file, read it
+        if (!empty($emailJob['temp_file']) && file_exists($emailJob['temp_file'])) {
+            debugLog("[WORKER] Reading email from temp file", $emailJob['temp_file']);
+            $rawData = file_get_contents($emailJob['temp_file']);
+            
+            // Re-parse with full attachment content
+            require_once __DIR__ . '/email_parser.php';
+            $parsedData = parseEmailFromRaw($rawData);
+            
+            // Merge parsed data into emailJob
+            if (!empty($parsedData['attachments'])) {
+                $emailJob['attachments'] = $parsedData['attachments'];
+            }
+            
+            // Delete temp file after reading
+            @unlink($emailJob['temp_file']);
+            debugLog("[WORKER] Temp file processed and deleted");
+        }
+        
         // Debug: Check if attachments exist in job
         if (isset($emailJob['attachments'])) {
             echo "[DEBUG] Email has 'attachments' key with " . count($emailJob['attachments']) . " items\n";
             if (!empty($emailJob['attachments'])) {
-                echo "[DEBUG] First attachment keys: " . implode(', ', array_keys($emailJob['attachments'][0])) . "\n";
+                foreach ($emailJob['attachments'] as $i => $att) {
+                    $hasContent = isset($att['content']);
+                    $size = $hasContent ? strlen($att['content']) : ($att['size'] ?? 0);
+                    echo "[DEBUG] Attachment $i: " . ($att['filename'] ?? 'unknown') . " - " . number_format($size) . " bytes (has content: " . ($hasContent ? 'yes' : 'no') . ")\n";
+                }
             }
         } else {
             echo "[DEBUG] Email job does NOT have 'attachments' key\n";
@@ -685,6 +708,11 @@ function saveLocalEmail($recipient, $emailJob) {
 
 // Main worker loop
 echo "Starting Mail Worker...\n";
+
+// Set memory limit
+ini_set('memory_limit', getenv('PHP_MEMORY_LIMIT') ?: '512M');
+echo "Memory limit: " . ini_get('memory_limit') . "\n";
+
 $redis = RedisQueue::getInstance();
 $db = Database::getInstance(); // Initialize database connection
 
@@ -705,10 +733,35 @@ while (true) {
                 echo "[DEBUG RAW] Attachments is: " . gettype($emailJob['attachments']) . "\n";
                 if (is_array($emailJob['attachments'])) {
                     echo "[DEBUG RAW] Attachments count: " . count($emailJob['attachments']) . "\n";
+                    // Log attachment sizes
+                    $totalSize = 0;
+                    foreach ($emailJob['attachments'] as $att) {
+                        $size = isset($att['content']) ? strlen($att['content']) : 0;
+                        $totalSize += $size;
+                        echo "[DEBUG RAW] Attachment: " . ($att['filename'] ?? 'unknown') . " - " . number_format($size) . " bytes\n";
+                    }
+                    echo "[DEBUG RAW] Total attachment size: " . number_format($totalSize) . " bytes\n";
                 }
             }
             
+            // Check memory before processing
+            $memBefore = memory_get_usage(true);
+            echo "[MEMORY] Before processing: " . number_format($memBefore / 1024 / 1024, 2) . " MB\n";
+            
             $success = processEmail($emailJob);
+            
+            // Check memory after processing
+            $memAfter = memory_get_usage(true);
+            echo "[MEMORY] After processing: " . number_format($memAfter / 1024 / 1024, 2) . " MB\n";
+            echo "[MEMORY] Memory used: " . number_format(($memAfter - $memBefore) / 1024 / 1024, 2) . " MB\n";
+            
+            // Force garbage collection for large emails
+            if (($memAfter - $memBefore) > 10 * 1024 * 1024) { // More than 10MB
+                echo "[MEMORY] Running garbage collection...\n";
+                gc_collect_cycles();
+                $memAfterGC = memory_get_usage(true);
+                echo "[MEMORY] After GC: " . number_format($memAfterGC / 1024 / 1024, 2) . " MB\n";
+            }
             
             if ($success) {
                 $processedCount++;
@@ -724,6 +777,23 @@ while (true) {
     } catch (Exception $e) {
         debugLog("[WORKER] Worker error", $e->getMessage());
         echo "Worker error: " . $e->getMessage() . "\n";
+        echo "Stack trace: " . $e->getTraceAsString() . "\n";
+        $errorCount++;
+        
+        // Force garbage collection on error
+        gc_collect_cycles();
+        
         sleep(5); // Wait before retrying
+    } catch (Error $e) {
+        // Catch fatal errors like out of memory
+        echo "FATAL ERROR: " . $e->getMessage() . "\n";
+        echo "Stack trace: " . $e->getTraceAsString() . "\n";
+        $errorCount++;
+        
+        // Force garbage collection
+        gc_collect_cycles();
+        
+        // Wait longer before retrying
+        sleep(10);
     }
 }

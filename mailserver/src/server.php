@@ -216,11 +216,28 @@ function saveEmail($connection) {
     try {
         $redis = RedisQueue::getInstance();
         
-        // Parse email data
-        $emailData = parseEmail($connection->smtp_data);
+        // For large emails, save to temporary file first
+        $emailSize = strlen($connection->smtp_data);
+        $useTempFile = $emailSize > 1024 * 1024; // > 1MB use temp file
+        
+        $tempFile = null;
+        if ($useTempFile) {
+            // Save to temp file
+            $tempDir = '/storage/temp_emails';
+            if (!is_dir($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+            $tempFile = $tempDir . '/' . uniqid('email_') . '.eml';
+            file_put_contents($tempFile, $connection->smtp_data);
+            debugLog("[SMTP] Saved large email to temp file", ['file' => $tempFile, 'size' => $emailSize]);
+        }
+        
+        // Parse email data (without decoding large attachments)
+        $emailData = parseEmail($connection->smtp_data, !$useTempFile);
         debugLog("[SMTP] Parsed email", [
             'subject' => $emailData['subject'],
-            'body_length' => strlen($emailData['body'] ?? '')
+            'body_length' => strlen($emailData['body'] ?? ''),
+            'attachments' => count($emailData['attachments'] ?? [])
         ]);
         
         // Push email to Redis queue for each recipient
@@ -232,13 +249,22 @@ function saveEmail($connection) {
                 'body' => $emailData['body'] ?? '',
                 'html_body' => $emailData['html_body'] ?? '',
                 'attachments' => $emailData['attachments'] ?? [],
-                'raw_data' => $connection->smtp_data,
-                'size' => strlen($connection->smtp_data),
+                'temp_file' => $tempFile,
+                'size' => $emailSize,
                 'received_at' => date('Y-m-d H:i:s')
             ];
             
+            // Only include raw_data if email is small
+            if (!$useTempFile) {
+                $emailJob['raw_data'] = $connection->smtp_data;
+            }
+            
             $redis->push('email_queue', $emailJob);
-            debugLog("[SMTP] Email pushed to queue", ['recipient' => $recipient, 'queue_size' => $redis->queueSize('email_queue')]);
+            debugLog("[SMTP] Email pushed to queue", [
+                'recipient' => $recipient, 
+                'queue_size' => $redis->queueSize('email_queue'),
+                'use_temp_file' => $useTempFile
+            ]);
         }
     } catch (Exception $e) {
         debugLog("[SMTP] Error queuing email", $e->getMessage());
@@ -246,7 +272,7 @@ function saveEmail($connection) {
     }
 }
 
-function parseEmail($rawData) {
+function parseEmail($rawData, $includeAttachmentContent = true) {
     $result = [
         'subject' => '',
         'body' => '',
@@ -380,11 +406,21 @@ function parseEmail($rawData) {
                 
                 if (!empty($filename)) {
                     debugLog("[PARSER] Found attachment", ['filename' => $filename, 'type' => $attachmentType]);
-                    $result['attachments'][] = [
+                    $attachment = [
                         'filename' => $filename,
-                        'content_type' => $attachmentType,
-                        'content' => decodeContent($partContent, $partHeaders)
+                        'content_type' => $attachmentType
                     ];
+                    
+                    // Only include content if requested (for small emails)
+                    if ($includeAttachmentContent) {
+                        $attachment['content'] = decodeContent($partContent, $partHeaders);
+                    } else {
+                        // Store metadata only, content will be read from temp file later
+                        $attachment['size'] = strlen($partContent);
+                        $attachment['encoded'] = preg_match('/Content-Transfer-Encoding:\s*base64/i', $partHeaders);
+                    }
+                    
+                    $result['attachments'][] = $attachment;
                 }
             }
         }

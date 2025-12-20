@@ -62,6 +62,7 @@ services:
       context: ./mailserver
       dockerfile: Dockerfile
     command: php /app/worker.php
+    restart: unless-stopped
     deploy:
       replicas: 1
     environment:
@@ -73,6 +74,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DEBUG: "true"
+      PHP_MEMORY_LIMIT: "512M"
     depends_on:
       - database
       - redis
