@@ -265,7 +265,7 @@ if ($action === 'send_email') {
     $to = $input['to'] ?? '';
     $subject = $input['subject'] ?? '';
     $body = $input['body'] ?? '';
-    $cc = $input['cc'] ?? [];
+    $cc = !empty($input['cc']) ? (is_array($input['cc']) ? implode(',', $input['cc']) : $input['cc']) : '';
     $bcc = $input['bcc'] ?? [];
     
     if (empty($to) || empty($subject) || empty($body)) {
@@ -274,37 +274,190 @@ if ($action === 'send_email') {
     
     $db = getDB();
     
-    // Get user email
+    // Get user info
     $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
     $stmt->execute([$userId]);
-    $userEmail = $stmt->fetchColumn();
+    $from = $stmt->fetchColumn();
     
-    // Get recipient user_id if exists
-    $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
-    $stmt->execute([$to]);
-    $recipientUser = $stmt->fetch(PDO::FETCH_ASSOC);
-    $recipientUserId = $recipientUser ? $recipientUser['id'] : null;
-    
-    $db->beginTransaction();
-    try {
-        // Insert email to sender's sent folder
-        $stmt = $db->prepare("INSERT INTO emails (user_id, from_email, to_email, subject, body, folder) VALUES (?, ?, ?, ?, ?, 'sent')");
-        $stmt->execute([$userId, $userEmail, $to, $subject, $body]);
-        $emailId = $db->lastInsertId();
+    // Rate limiting functions
+    function checkExternalEmailRateLimit($userId, $db) {
+        $stmt = $db->prepare("
+            SELECT COUNT(*) as count 
+            FROM external_email_log 
+            WHERE user_id = ? 
+            AND sent_at > NOW() - INTERVAL '1 hour'
+        ");
+        $stmt->execute([$userId]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        // If recipient exists in our system, also insert to their inbox
-        if ($recipientUserId) {
-            $stmt = $db->prepare("INSERT INTO emails (user_id, from_email, to_email, subject, body, folder) VALUES (?, ?, ?, ?, ?, 'inbox')");
-            $stmt->execute([$recipientUserId, $userEmail, $to, $subject, $body]);
+        $maxEmailsPerHour = 10;
+        $currentCount = $result['count'] ?? 0;
+        
+        return [
+            'allowed' => $currentCount < $maxEmailsPerHour,
+            'current' => $currentCount,
+            'limit' => $maxEmailsPerHour,
+            'remaining' => max(0, $maxEmailsPerHour - $currentCount)
+        ];
+    }
+    
+    function logExternalEmail($userId, $toEmail, $db) {
+        $stmt = $db->prepare("
+            INSERT INTO external_email_log (user_id, to_email, sent_at)
+            VALUES (?, ?, NOW())
+        ");
+        $stmt->execute([$userId, $toEmail]);
+    }
+    
+    // Generate message ID
+    $messageId = '<' . uniqid() . '@imel.id>';
+    
+    // Create plain text version
+    $plainBody = strip_tags($body);
+    
+    // Build email content
+    $emailContent = "From: $from\r\n";
+    $emailContent .= "To: $to\r\n";
+    if (!empty($cc)) {
+        $emailContent .= "CC: $cc\r\n";
+    }
+    $emailContent .= "Subject: $subject\r\n";
+    $emailContent .= "Message-ID: $messageId\r\n";
+    $emailContent .= "Date: " . date('r') . "\r\n";
+    $emailContent .= "Content-Type: text/html; charset=UTF-8\r\n";
+    $emailContent .= "\r\n";
+    $emailContent .= $body;
+    
+    // Build list of all recipients
+    $allRecipients = array_map('trim', explode(',', $to));
+    if (!empty($cc)) {
+        $ccRecipients = array_map('trim', explode(',', $cc));
+        $allRecipients = array_merge($allRecipients, $ccRecipients);
+    }
+    
+    // Count external recipients
+    $externalCount = 0;
+    foreach ($allRecipients as $recipient) {
+        if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
+            $externalCount++;
         }
+    }
+    
+    // Check if internal or external
+    $isInternal = str_ends_with($to, '@imel.id');
+    $hasExternal = $externalCount > 0;
+    
+    // Check rate limit for external emails
+    if ($hasExternal) {
+        $rateLimit = checkExternalEmailRateLimit($userId, $db);
         
-        $db->commit();
-        
-        // TODO: Send to mail server
-        // For now, just store in database
-        
-        sendSuccess(['email_id' => $emailId], 'Email berhasil dikirim');
-    } catch (PDOException $e) {
+        if ($rateLimit['remaining'] < $externalCount) {
+            sendError("Batas pengiriman email eksternal tercapai. Anda membutuhkan {$externalCount} kuota tetapi hanya tersisa {$rateLimit['remaining']} dari {$rateLimit['limit']} email per jam. Silakan coba lagi nanti.");
+        }
+    }
+    
+    try {
+        if ($isInternal) {
+            // Internal email - save directly to database
+            $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt->execute([$to]);
+            $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($recipient) {
+                // Save to recipient's inbox
+                $stmt = $db->prepare("
+                    INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox', NOW(), ?)
+                ");
+                
+                $stmt->execute([
+                    $messageId,
+                    $recipient['id'],
+                    $from,
+                    $to,
+                    $cc,
+                    $subject,
+                    $plainBody,
+                    $body,
+                    strlen($emailContent)
+                ]);
+                
+                // Save to sender's sent folder
+                $stmt = $db->prepare("
+                    INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
+                ");
+                
+                $stmt->execute([
+                    $messageId . '-sent',
+                    $userId,
+                    $from,
+                    $to,
+                    $cc,
+                    $subject,
+                    $plainBody,
+                    $body,
+                    strlen($emailContent)
+                ]);
+                
+                sendSuccess(['email_id' => $db->lastInsertId()], 'Email berhasil dikirim!');
+            } else {
+                sendError('Penerima tidak ditemukan');
+            }
+        } else {
+            // External email - send via Redis queue
+            $redisHost = getenv('REDIS_HOST') ?: 'redis';
+            $redisPort = getenv('REDIS_PORT') ?: 6379;
+            
+            $redis = new \Predis\Client([
+                'scheme' => 'tcp',
+                'host' => $redisHost,
+                'port' => $redisPort,
+            ]);
+            
+            // Push to queue
+            $emailJob = [
+                'from' => $from,
+                'to' => $to,
+                'cc' => $cc,
+                'subject' => $subject,
+                'body' => $body,
+                'html_body' => '',
+                'attachments' => [],
+                'received_at' => date('Y-m-d H:i:s')
+            ];
+            
+            $redis->rpush('email_queue', json_encode($emailJob));
+            
+            // Log external email for rate limiting
+            foreach ($allRecipients as $recipient) {
+                if (!empty($recipient) && !str_ends_with($recipient, '@imel.id')) {
+                    logExternalEmail($userId, $recipient, $db);
+                }
+            }
+            
+            // Save to sent folder
+            $stmt = $db->prepare("
+                INSERT INTO emails (message_id, user_id, from_email, to_email, cc, subject, body, html_body, folder, received_at, size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)
+            ");
+            
+            $stmt->execute([
+                $messageId,
+                $userId,
+                $from,
+                $to,
+                $cc,
+                $subject,
+                $plainBody,
+                $body,
+                strlen($emailContent)
+            ]);
+            
+            sendSuccess(['email_id' => $db->lastInsertId()], 'Email berhasil dikirim!');
+        }
+    } catch (Exception $e) {
+        error_log("[API] ERROR: " . $e->getMessage());
         sendError('Gagal mengirim email: ' . $e->getMessage());
     }
 }

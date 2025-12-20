@@ -6,7 +6,8 @@ import '../models/email_message.dart';
 
 class ApiService {
   // Update dengan base URL sesuai dengan server Anda
-  static const String baseUrl = 'http://localhost/api.php';
+  // static const String baseUrl = 'http://localhost/api.php';
+  static const String baseUrl = 'https://imel.id/api.php';
   
   final _storage = const FlutterSecureStorage();
 
