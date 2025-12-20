@@ -72,10 +72,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
 
             <p class="mb-1 mt-3 text-center">
-                <a href="?page=forgot-password" style="color: red;">Lupa password?</a>
+                <a href="?page=forgot-password" style="color: red !important;">Lupa password?</a>
             </p>
             <p class="mb-0 text-center">
-                <a href="?page=register" class="text-center" style="color: red;">Belum punya akun? Daftar di sini</a>
+                <a href="?page=register" class="text-center" style="color: red !important;">Belum punya akun? Daftar di sini</a>
             </p>
         </div>
     </div>
