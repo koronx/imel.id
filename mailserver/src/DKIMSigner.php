@@ -25,14 +25,14 @@ class DKIMSigner {
         // Calculate body hash
         $bodyHash = base64_encode(hash('sha256', $canonicalizedBody, true));
         
-        // Prepare DKIM signature header
+        // Prepare DKIM signature header (includes b= at end)
         $dkimHeader = $this->prepareDKIMHeader($bodyHash, $headers);
         
         // Sign the header
         $signature = $this->signHeader($dkimHeader, $headers);
         
-        // Build final DKIM-Signature header
-        $dkimSignature = "DKIM-Signature: " . $dkimHeader . "b=" . $signature;
+        // Build final DKIM-Signature header (dkimHeader already has b=)
+        $dkimSignature = "DKIM-Signature: " . $dkimHeader . $signature;
         
         return $dkimSignature;
     }
