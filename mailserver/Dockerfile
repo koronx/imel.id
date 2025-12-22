@@ -31,6 +31,9 @@ COPY src/ ./
 # Copy DKIM keys
 COPY dkim/ /app/dkim/
 
+# Copy SSL certificates
+COPY ssl/ /app/ssl/
+
 # Expose ports
 EXPOSE 25 143 587 993
 

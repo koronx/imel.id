@@ -70,13 +70,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
             </form>
-
+            
+            <!-- disable social login for now -->
+            <!--
             <div class="social-auth-links text-center mt-3 mb-3">
                 <p>- ATAU -</p>
                 <a href="?page=oauth-google" class="btn btn-block btn-danger">
                     <i class="fab fa-google mr-2"></i> Login dengan Google
                 </a>
             </div>
+            -->
 
             <p class="mb-1 mt-3 text-center">
                 <a href="?page=forgot-password" style="color: red !important;">Lupa password?</a>

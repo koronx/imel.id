@@ -207,6 +207,47 @@ function sendExternalEmail($emailJob) {
         $domain = getDomainFromEmail($emailJob['to']);
         debugLog("[WORKER] Sending to external domain", $domain);
         
+        // Validate sender - must be a local user or system account
+        $senderEmail = $emailJob['from'];
+        $senderDomain = getDomainFromEmail($senderEmail);
+        
+        // System accounts whitelist (no user account needed)
+        $systemAccounts = ['noreply@imel.id', 'system@imel.id'];
+        
+        if (isLocalDomain($senderDomain)) {
+            // Check if sender is a system account
+            if (in_array($senderEmail, $systemAccounts)) {
+                debugLog("[WORKER] System account sender, skipping user validation", ['from' => $senderEmail]);
+            } else {
+                // Sender is from local domain, check if user exists
+                $db = Database::getInstance()->getConnection();
+                $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+                $stmt->execute([$senderEmail]);
+                $senderUser = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$senderUser) {
+                    debugLog("[WORKER] External email rejected - sender not found in local database", [
+                        'from' => $senderEmail,
+                        'to' => $emailJob['to'],
+                        'domain' => $domain
+                    ]);
+                    echo "[ERROR] Cannot send external email from $senderEmail: Account does not exist on this server\n";
+                    return false;
+                }
+                
+                debugLog("[WORKER] Sender validated for external email", ['from' => $senderEmail, 'user_id' => $senderUser['id']]);
+            }
+        } else {
+            // External sender trying to use our server as relay - reject
+            debugLog("[WORKER] External email rejected - sender is not from local domain", [
+                'from' => $senderEmail,
+                'sender_domain' => $senderDomain,
+                'to' => $emailJob['to']
+            ]);
+            echo "[ERROR] Cannot relay email from $senderEmail: Only local users can send external emails\n";
+            return false;
+        }
+        
         // Check rate limit for local senders
         $db = Database::getInstance()->getConnection();
         $rateLimit = checkExternalEmailRateLimit($emailJob['from'], $db);
@@ -564,6 +605,46 @@ function processEmail($emailJob) {
             'subject' => $emailJob['subject']
         ]);
         
+        // Validate sender - must be a local user or system account
+        $senderEmail = $emailJob['from'];
+        $senderDomain = getDomainFromEmail($senderEmail);
+        
+        // System accounts whitelist (no user account needed)
+        $systemAccounts = ['noreply@imel.id', 'system@imel.id'];
+        
+        if (isLocalDomain($senderDomain)) {
+            // Check if sender is a system account
+            if (in_array($senderEmail, $systemAccounts)) {
+                debugLog("[WORKER] System account sender, skipping user validation", ['from' => $senderEmail]);
+            } else {
+                // Sender is from local domain, check if user exists
+                $db = Database::getInstance()->getConnection();
+                $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+                $stmt->execute([$senderEmail]);
+                $senderUser = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$senderUser) {
+                    debugLog("[WORKER] Email rejected - sender not found in local database", [
+                        'from' => $senderEmail,
+                        'to' => $emailJob['to'],
+                        'subject' => $emailJob['subject']
+                    ]);
+                    echo "[ERROR] Cannot send email from $senderEmail: Account does not exist on this server\n";
+                    
+                    // Delete temp file if exists
+                    if (!empty($emailJob['temp_file']) && file_exists($emailJob['temp_file'])) {
+                        @unlink($emailJob['temp_file']);
+                    }
+                    
+                    return false;
+                }
+                
+                debugLog("[WORKER] Sender validated", ['from' => $senderEmail, 'user_id' => $senderUser['id']]);
+            }
+        } else {
+            debugLog("[WORKER] Sender is external domain, skipping validation", ['from' => $senderEmail, 'domain' => $senderDomain]);
+        }
+        
         // If email was saved to temp file, read it
         if (!empty($emailJob['temp_file']) && file_exists($emailJob['temp_file'])) {
             debugLog("[WORKER] Reading email from temp file", $emailJob['temp_file']);
@@ -602,19 +683,28 @@ function processEmail($emailJob) {
         
         // Add TO recipients
         if (!empty($emailJob['to'])) {
-            $toAddresses = array_map('trim', explode(',', $emailJob['to']));
+            // Handle both string (old format) and array (new format)
+            $toAddresses = is_array($emailJob['to']) 
+                ? $emailJob['to'] 
+                : array_map('trim', explode(',', $emailJob['to']));
             $allRecipients = array_merge($allRecipients, $toAddresses);
         }
         
         // Add CC recipients
         if (!empty($emailJob['cc'])) {
-            $ccAddresses = array_map('trim', explode(',', $emailJob['cc']));
+            // Handle both string (old format) and array (new format)
+            $ccAddresses = is_array($emailJob['cc']) 
+                ? $emailJob['cc'] 
+                : array_map('trim', explode(',', $emailJob['cc']));
             $allRecipients = array_merge($allRecipients, $ccAddresses);
         }
         
         // Add BCC recipients
         if (!empty($emailJob['bcc'])) {
-            $bccAddresses = array_map('trim', explode(',', $emailJob['bcc']));
+            // Handle both string (old format) and array (new format)
+            $bccAddresses = is_array($emailJob['bcc']) 
+                ? $emailJob['bcc'] 
+                : array_map('trim', explode(',', $emailJob['bcc']));
             $allRecipients = array_merge($allRecipients, $bccAddresses);
         }
         
@@ -666,6 +756,12 @@ function saveLocalEmail($recipient, $emailJob) {
         $stmt->execute([$recipient]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
+        if (!$user) {
+            debugLog("[WORKER] Email rejected - user not found", ['recipient' => $recipient]);
+            echo "[ERROR] Cannot deliver email to $recipient: Account does not exist on this server\n";
+            return false;
+        }
+        
         if ($user) {
             debugLog("[WORKER] User found", ['user_id' => $user['id'], 'email' => $recipient]);
             
@@ -684,7 +780,7 @@ function saveLocalEmail($recipient, $emailJob) {
                 $emailJob['subject'],
                 $emailJob['body'],
                 $emailJob['html_body'],
-                $emailJob['size']
+                $emailJob['size'] ?? 0
             ]);
             
             $emailId = $db->lastInsertId();

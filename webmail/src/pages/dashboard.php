@@ -48,6 +48,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_rate_limit'])) 
     }
 }
 
+// Handle Rate Limit Settings Update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_rate_limit_settings'])) {
+    $defaultLimit = (int)($_POST['default_daily_external_limit'] ?? 100);
+    
+    if ($defaultLimit < 1) {
+        $_SESSION['error'] = 'Rate limit minimal 1 email per hari';
+    } else {
+        try {
+            $stmt = $db->prepare("UPDATE rate_limit_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = 'default_daily_external_limit'");
+            $stmt->execute([(string)$defaultLimit]);
+            
+            $_SESSION['success'] = "Default rate limit berhasil diupdate menjadi {$defaultLimit} email eksternal per hari";
+        } catch (Exception $e) {
+            $_SESSION['error'] = 'Error: ' . $e->getMessage();
+        }
+        
+        header('Location: ?page=dashboard');
+        exit;
+    }
+}
+
 // Handle Update Quota
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_quota'])) {
     $targetUserId = (int)($_POST['user_id'] ?? 0);
@@ -119,11 +140,17 @@ $topSenders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Top Destination Domains (from sent emails)
 $stmt = $db->query("
+    WITH email_recipients AS (
+        SELECT 
+            TRIM(UNNEST(STRING_TO_ARRAY(to_email, ','))) as recipient_email
+        FROM emails
+        WHERE folder = 'sent' AND to_email LIKE '%@%'
+    )
     SELECT 
-        SUBSTRING(to_email FROM POSITION('@' IN to_email) + 1) as domain,
+        SUBSTRING(recipient_email FROM POSITION('@' IN recipient_email) + 1) as domain,
         COUNT(*) as email_count
-    FROM emails
-    WHERE folder = 'sent' AND to_email LIKE '%@%'
+    FROM email_recipients
+    WHERE recipient_email LIKE '%@%'
     GROUP BY domain
     ORDER BY email_count DESC
     LIMIT 10
@@ -156,6 +183,11 @@ $totalQuotaGB = round($quotaStats['total_quota_bytes'] / (1024 * 1024 * 1024), 2
 $totalUsedMB = round($quotaStats['total_used_bytes'] / (1024 * 1024), 1);
 $totalUsedGB = round($quotaStats['total_used_bytes'] / (1024 * 1024 * 1024), 2);
 $totalUsagePercent = $quotaStats['usage_percent'] ?? 0;
+
+// Get rate limit settings
+$stmt = $db->query("SELECT setting_value FROM rate_limit_settings WHERE setting_key = 'default_daily_external_limit'");
+$rateLimitSetting = $stmt->fetch(PDO::FETCH_ASSOC);
+$defaultDailyExternalLimit = (int)($rateLimitSetting['setting_value'] ?? 100);
 
 // Total emails statistics
 $stmt = $db->query("
@@ -333,6 +365,98 @@ foreach ($hourlyStats as $stat) {
                         <small class="form-text text-muted mt-2">
                             <i class="fas fa-info-circle"></i> Reset semua rate limit untuk user tertentu (email eksternal & forgot password)
                         </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rate Limit Settings -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-success card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-cog"></i> Pengaturan Rate Limit Default</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" class="form-inline">
+                            <div class="form-group mr-3">
+                                <label class="mr-2">Rate Limit Email Eksternal (per hari):</label>
+                                <input type="number" name="default_daily_external_limit" class="form-control" 
+                                       value="<?php echo htmlspecialchars($defaultDailyExternalLimit); ?>" 
+                                       min="1" max="10000" required style="width: 120px;">
+                            </div>
+                            <button type="submit" name="update_rate_limit_settings" class="btn btn-success">
+                                <i class="fas fa-save"></i> Simpan Pengaturan
+                            </button>
+                        </form>
+                        <small class="form-text text-muted mt-2">
+                            <i class="fas fa-info-circle"></i> Setting ini akan digunakan sebagai default rate limit untuk user baru yang mendaftar
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Queue Management -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card card-info card-outline">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-list"></i> Manajemen Queue Email</h3>
+                        <div class="card-tools">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="loadQueue()">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <input type="text" id="queueSearchInput" class="form-control" placeholder="Cari email di queue (from, to, subject)...">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-primary" onclick="searchQueue()">
+                                            <i class="fas fa-search"></i> Cari
+                                        </button>
+                                        <button class="btn btn-secondary" onclick="loadQueue()">
+                                            <i class="fas fa-times"></i> Reset
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 text-right">
+                                <button class="btn btn-danger" onclick="clearAllQueue()">
+                                    <i class="fas fa-trash-alt"></i> Hapus Semua Queue
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="queueStats" class="mb-3">
+                            <div class="alert alert-info">
+                                <i class="fas fa-spinner fa-spin"></i> Memuat data queue...
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover" id="queueTable">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">#</th>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th>Subject</th>
+                                        <th style="width: 100px;">Size</th>
+                                        <th style="width: 150px;">Received At</th>
+                                        <th style="width: 80px;">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="queueTableBody">
+                                    <tr>
+                                        <td colspan="7" class="text-center">Memuat data...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -631,56 +755,14 @@ foreach ($hourlyStats as $stat) {
     </div>
 </div>
 
+<?php
+// Store dashboard scripts to be loaded after jQuery
+ob_start();
+?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 <script>
     // Store API token
-    const API_TOKEN = '<?php echo getSessionToken(); ?>';
-    
-    const ctx = document.getElementById('emailChart').getContext('2d');
-    const emailChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: <?php echo json_encode($hours); ?>,
-            datasets: [
-                {
-                    label: 'Email Diterima',
-                    data: <?php echo json_encode(array_values($receivedPerHour)); ?>,
-                    borderColor: 'rgb(255, 193, 7)',
-                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                },
-                {
-                    label: 'Email Terkirim',
-                    data: <?php echo json_encode(array_values($sentPerHour)); ?>,
-                    borderColor: 'rgb(220, 53, 69)',
-                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'top',
-                },
-                title: {
-                    display: false
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        stepSize: 1
-                    }
-                }
-            }
-        }
-    });
+    const API_TOKEN = '<?php echo getSessionToken() ?? ""; ?>';
     
     // Edit User Modal
     function editUser(userData) {
@@ -692,7 +774,9 @@ foreach ($hourlyStats as $stat) {
         document.getElementById('edit_quota').value = userData.quota_gb;
         document.getElementById('edit_reset_quota').checked = false;
         
-        $('#editUserModal').modal('show');
+        if (typeof $ !== 'undefined' && $.fn.modal) {
+            $('#editUserModal').modal('show');
+        }
     }
     
     // Save User
@@ -812,4 +896,267 @@ foreach ($hourlyStats as $stat) {
             form.submit();
         }
     }
+
+    // Queue Management Functions
+    let currentQueueData = [];
+
+    // Combined DOMContentLoaded event
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize email chart
+        const chartElement = document.getElementById('emailChart');
+        if (chartElement) {
+            const ctx = chartElement.getContext('2d');
+            const emailChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: <?php echo json_encode($hours); ?>,
+                    datasets: [
+                        {
+                            label: 'Email Diterima',
+                            data: <?php echo json_encode(array_values($receivedPerHour)); ?>,
+                            borderColor: 'rgb(255, 193, 7)',
+                            backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Email Terkirim',
+                            data: <?php echo json_encode(array_values($sentPerHour)); ?>,
+                            borderColor: 'rgb(220, 53, 69)',
+                            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Load queue if token is valid
+        if (!API_TOKEN) {
+            showQueueError('Session token tidak valid. Silakan refresh halaman.');
+            return;
+        }
+        loadQueue();
+    });
+
+    async function loadQueue() {
+        try {
+            const response = await fetch('/api.php?action=admin_get_queue', {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + API_TOKEN
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('HTTP error! status: ' + response.status);
+            }
+            
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error('Server tidak mengembalikan JSON response');
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                currentQueueData = result.items || [];
+                displayQueue(result);
+            } else {
+                showQueueError('Error: ' + result.message);
+            }
+        } catch (error) {
+            showQueueError('Error: ' + error.message);
+        }
+    }
+
+    async function searchQueue() {
+        const searchQuery = document.getElementById('queueSearchInput').value.trim();
+        
+        try {
+            const response = await fetch('/api.php?action=admin_search_queue&q=' + encodeURIComponent(searchQuery), {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + API_TOKEN
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('HTTP error! status: ' + response.status);
+            }
+            
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error('Server tidak mengembalikan JSON response');
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                currentQueueData = result.items || [];
+                displayQueue(result);
+            } else {
+                showQueueError('Error: ' + result.message);
+            }
+        } catch (error) {
+            showQueueError('Error: ' + error.message);
+        }
+    }
+
+    function displayQueue(data) {
+        const queueLength = data.queue_length || 0;
+        const items = data.items || [];
+        const searchQuery = data.search_query || '';
+        
+        // Update stats
+        let statsHtml = '<div class="row">';
+        statsHtml += '<div class="col-md-4"><div class="info-box"><span class="info-box-icon bg-info"><i class="fas fa-list"></i></span><div class="info-box-content"><span class="info-box-text">Total Queue</span><span class="info-box-number">' + queueLength + '</span></div></div></div>';
+        statsHtml += '<div class="col-md-4"><div class="info-box"><span class="info-box-icon bg-success"><i class="fas fa-eye"></i></span><div class="info-box-content"><span class="info-box-text">Ditampilkan</span><span class="info-box-number">' + items.length + '</span></div></div></div>';
+        
+        if (searchQuery) {
+            statsHtml += '<div class="col-md-4"><div class="info-box"><span class="info-box-icon bg-warning"><i class="fas fa-search"></i></span><div class="info-box-content"><span class="info-box-text">Hasil Pencarian</span><span class="info-box-number">' + items.length + '</span></div></div></div>';
+        } else {
+            statsHtml += '<div class="col-md-4"><div class="info-box"><span class="info-box-icon bg-primary"><i class="fas fa-clock"></i></span><div class="info-box-content"><span class="info-box-text">Status</span><span class="info-box-number">Active</span></div></div></div>';
+        }
+        statsHtml += '</div>';
+        
+        document.getElementById('queueStats').innerHTML = statsHtml;
+        
+        // Update table
+        const tbody = document.getElementById('queueTableBody');
+        
+        if (items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">Tidak ada email di queue</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        items.forEach((item, idx) => {
+            const sizeKB = Math.round(item.size / 1024);
+            const sizeMB = (item.size / (1024 * 1024)).toFixed(2);
+            const sizeDisplay = sizeKB < 1024 ? sizeKB + ' KB' : sizeMB + ' MB';
+            
+            html += '<tr>';
+            html += '<td>' + (idx + 1) + '</td>';
+            html += '<td><small>' + escapeHtml(item.from) + '</small></td>';
+            html += '<td><small>' + escapeHtml(item.to) + '</small></td>';
+            html += '<td>' + escapeHtml(item.subject || '(No Subject)');
+            if (item.has_attachments) {
+                html += ' <i class="fas fa-paperclip text-muted" title="Has attachments"></i>';
+            }
+            html += '</td>';
+            html += '<td><small>' + sizeDisplay + '</small></td>';
+            html += '<td><small>' + item.received_at + '</small></td>';
+            html += '<td>';
+            html += '<button class="btn btn-sm btn-danger" onclick="deleteQueueItem(' + item.index + ', \'' + escapeHtml(item.subject || 'No Subject') + '\')" title="Hapus">';
+            html += '<i class="fas fa-trash"></i>';
+            html += '</button>';
+            html += '</td>';
+            html += '</tr>';
+        });
+        
+        tbody.innerHTML = html;
+    }
+
+    async function deleteQueueItem(index, subject) {
+        if (!confirm('Hapus email dari queue?\n\nSubject: ' + subject + '\n\nEmail ini tidak akan dikirim.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api.php?action=admin_delete_queue_item', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_TOKEN
+                },
+                body: JSON.stringify({ index: index })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                // Reload queue
+                loadQueue();
+            } else {
+                alert('Error: ' + result.message);
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function clearAllQueue() {
+        if (!confirm('PERINGATAN!\n\nAnda akan menghapus SEMUA email dari queue!\n\nSemua email yang belum terkirim akan dihapus permanen.\n\nApakah Anda yakin?')) {
+            return;
+        }
+        
+        if (!confirm('Konfirmasi sekali lagi.\n\nHapus SEMUA email dari queue?\n\nIni tidak dapat dibatalkan!')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api.php?action=admin_clear_queue', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_TOKEN
+                },
+                body: JSON.stringify({})
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                alert('Semua email berhasil dihapus dari queue (' + result.deleted_count + ' items)');
+                loadQueue();
+            } else {
+                alert('Error: ' + result.message);
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    function showQueueError(message) {
+        document.getElementById('queueStats').innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ' + message + '</div>';
+        document.getElementById('queueTableBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error memuat data</td></tr>';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Handle search on Enter key
+    document.getElementById('queueSearchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchQueue();
+        }
+    });
 </script>
+<?php
+$DASHBOARD_SCRIPTS = ob_get_clean();
+?>

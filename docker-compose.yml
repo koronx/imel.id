@@ -37,9 +37,6 @@ services:
     container_name: mailserver
     ports:
       - "25:25"       # SMTP
-      - "143:143"     # IMAP
-      - "587:587"     # SMTP submission
-      - "993:993"     # IMAPS
     environment:
       DB_HOST: database
       DB_PORT: 5432
@@ -52,6 +49,57 @@ services:
     depends_on:
       - database
       - redis
+    networks:
+      - mailnet
+    volumes:
+      - ./storage:/storage
+
+  submission-server:
+    build:
+      context: ./mailserver
+      dockerfile: Dockerfile
+    command: php /app/submission.php start
+    container_name: submission-server
+    restart: unless-stopped
+    ports:
+      - "587:587"     # SMTP submission (no SSL)
+      - "465:465"     # SMTPS (SSL/TLS)
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: maildb
+      DB_USER: mailuser
+      DB_PASSWORD: mailpassword
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DEBUG: "true"
+    depends_on:
+      - database
+      - redis
+    networks:
+      - mailnet
+    volumes:
+      - ./storage:/storage
+
+  imap-server:
+    build:
+      context: ./mailserver
+      dockerfile: Dockerfile
+    command: php /app/imap.php start
+    container_name: imap-server
+    restart: unless-stopped
+    ports:
+      - "143:143"     # IMAP
+      - "993:993"     # IMAPS
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: maildb
+      DB_USER: mailuser
+      DB_PASSWORD: mailpassword
+      DEBUG: "true"
+    depends_on:
+      - database
     networks:
       - mailnet
     volumes:
@@ -98,12 +146,13 @@ services:
       DB_PASSWORD: mailpassword
       MAIL_HOST: mailserver
       MAIL_PORT: 25
-      IMAP_HOST: mailserver
+      IMAP_HOST: imap-server
       IMAP_PORT: 143
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
       - mailserver
+      - imap-server
       - database
       - redis
     networks:

@@ -100,6 +100,32 @@ class Database {
     }
 }
 
+// Helper function to get domain from email
+function getDomainFromEmail($email) {
+    $parts = explode('@', $email);
+    return isset($parts[1]) ? strtolower($parts[1]) : '';
+}
+
+// Helper function to check if domain is local
+function isLocalDomain($domain) {
+    $localDomains = ['imel.id'];
+    return in_array(strtolower($domain), $localDomains);
+}
+
+// Helper function to check if user exists
+function userExists($email) {
+    try {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        return !empty($user);
+    } catch (Exception $e) {
+        debugLog("[SMTP] Error checking user existence", $e->getMessage());
+        return false;
+    }
+}
+
 // SMTP Server
 $smtp_worker = new Worker("tcp://0.0.0.0:25");
 $smtp_worker->name = 'SMTP Server';
@@ -163,6 +189,15 @@ $smtp_worker->onMessage = function($connection, $data) {
         case 'MAIL':
             if (preg_match('/FROM:<(.+?)>/i', $data, $matches)) {
                 $connection->smtp_from = $matches[1];
+                
+                // Block system-reserved email addresses
+                $reservedAddresses = ['noreply@imel.id', 'system@imel.id'];
+                if (in_array(strtolower($connection->smtp_from), $reservedAddresses)) {
+                    debugLog("[SMTP] MAIL FROM rejected - reserved system address", $connection->smtp_from);
+                    $connection->send("553 Requested action not taken: This address is reserved for system use only\r\n");
+                    break;
+                }
+                
                 debugLog("[SMTP] MAIL FROM", $connection->smtp_from);
                 $connection->send("250 OK\r\n");
                 $connection->smtp_state = 'MAIL';
@@ -174,8 +209,25 @@ $smtp_worker->onMessage = function($connection, $data) {
             
         case 'RCPT':
             if (preg_match('/TO:<(.+?)>/i', $data, $matches)) {
-                $connection->smtp_to[] = $matches[1];
-                debugLog("[SMTP] RCPT TO", $matches[1]);
+                $recipient = $matches[1];
+                $domain = getDomainFromEmail($recipient);
+                
+                // Check if domain is local (imel.id)
+                if (!isLocalDomain($domain)) {
+                    debugLog("[SMTP] RCPT TO rejected - domain not served here", ['recipient' => $recipient, 'domain' => $domain]);
+                    $connection->send("550 Relay not permitted: This server only accepts mail for imel.id\r\n");
+                    break;
+                }
+                
+                // Check if user exists in database
+                if (!userExists($recipient)) {
+                    debugLog("[SMTP] RCPT TO rejected - user not found", ['recipient' => $recipient]);
+                    $connection->send("550 User not found: Account does not exist on this server\r\n");
+                    break;
+                }
+                
+                $connection->smtp_to[] = $recipient;
+                debugLog("[SMTP] RCPT TO accepted", $recipient);
                 $connection->send("250 OK\r\n");
                 $connection->smtp_state = 'RCPT';
             } else {
@@ -478,170 +530,7 @@ function saveAttachments($db, $emailId, $attachments) {
     }
 }
 
-// IMAP Server
-$imap_worker = new Worker("tcp://0.0.0.0:143");
-$imap_worker->name = 'IMAP Server';
-$imap_worker->count = 4;
-
-$imap_worker->onConnect = function($connection) {
-    $connection->send("* OK IMAP4rev1 Service Ready\r\n");
-    $connection->imap_state = 'NOT_AUTHENTICATED';
-    $connection->imap_user = null;
-};
-
-$imap_worker->onMessage = function($connection, $data) {
-    $data = trim($data);
-    
-    // Parse IMAP command: TAG COMMAND ARGS
-    if (!preg_match('/^(\S+)\s+(\S+)(.*)$/', $data, $matches)) {
-        $connection->send("* BAD Invalid command\r\n");
-        return;
-    }
-    
-    $tag = $matches[1];
-    $command = strtoupper($matches[2]);
-    $args = trim($matches[3] ?? '');
-    
-    switch ($command) {
-        case 'CAPABILITY':
-            $connection->send("* CAPABILITY IMAP4rev1\r\n");
-            $connection->send("$tag OK CAPABILITY completed\r\n");
-            break;
-            
-        case 'LOGIN':
-            handleImapLogin($connection, $tag, $args);
-            break;
-            
-        case 'SELECT':
-        case 'EXAMINE':
-            handleImapSelect($connection, $tag, $args);
-            break;
-            
-        case 'LIST':
-            handleImapList($connection, $tag, $args);
-            break;
-            
-        case 'FETCH':
-            handleImapFetch($connection, $tag, $args);
-            break;
-            
-        case 'LOGOUT':
-            $connection->send("* BYE IMAP4rev1 Server logging out\r\n");
-            $connection->send("$tag OK LOGOUT completed\r\n");
-            $connection->close();
-            break;
-            
-        default:
-            $connection->send("$tag BAD Command not implemented\r\n");
-    }
-};
-
-function handleImapLogin($connection, $tag, $args) {
-    // Parse: LOGIN "username" "password"
-    if (preg_match('/"([^"]+)"\s+"([^"]+)"/', $args, $matches)) {
-        $email = $matches[1];
-        $password = $matches[2];
-        
-        try {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT id, password FROM users WHERE email = ?");
-            $stmt->execute([$email]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($user && password_verify($password, $user['password'])) {
-                $connection->imap_state = 'AUTHENTICATED';
-                $connection->imap_user = $user;
-                $connection->send("$tag OK LOGIN completed\r\n");
-            } else {
-                $connection->send("$tag NO LOGIN failed\r\n");
-            }
-        } catch (Exception $e) {
-            $connection->send("$tag NO LOGIN failed\r\n");
-        }
-    } else {
-        $connection->send("$tag BAD LOGIN syntax error\r\n");
-    }
-}
-
-function handleImapSelect($connection, $tag, $args) {
-    if ($connection->imap_state !== 'AUTHENTICATED') {
-        $connection->send("$tag NO Not authenticated\r\n");
-        return;
-    }
-    
-    $folder = trim($args, '"');
-    
-    try {
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM emails WHERE user_id = ? AND folder = ?");
-        $stmt->execute([$connection->imap_user['id'], strtolower($folder)]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $connection->send("* {$result['count']} EXISTS\r\n");
-        $connection->send("* 0 RECENT\r\n");
-        $connection->send("$tag OK SELECT completed\r\n");
-        $connection->imap_selected_folder = strtolower($folder);
-    } catch (Exception $e) {
-        $connection->send("$tag NO SELECT failed\r\n");
-    }
-}
-
-function handleImapList($connection, $tag, $args) {
-    if ($connection->imap_state !== 'AUTHENTICATED') {
-        $connection->send("$tag NO Not authenticated\r\n");
-        return;
-    }
-    
-    $connection->send('* LIST () "/" "INBOX"' . "\r\n");
-    $connection->send('* LIST () "/" "Sent"' . "\r\n");
-    $connection->send('* LIST () "/" "Drafts"' . "\r\n");
-    $connection->send('* LIST () "/" "Trash"' . "\r\n");
-    $connection->send("$tag OK LIST completed\r\n");
-}
-
-function handleImapFetch($connection, $tag, $args) {
-    if ($connection->imap_state !== 'AUTHENTICATED') {
-        $connection->send("$tag NO Not authenticated\r\n");
-        return;
-    }
-    
-    // Simple FETCH implementation
-    // Parse: FETCH sequence items
-    // Example: FETCH 1:* (FLAGS BODY[HEADER.FIELDS (FROM SUBJECT DATE)])
-    
-    try {
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("
-            SELECT id, from_email, subject, received_at, body, is_read
-            FROM emails 
-            WHERE user_id = ? AND folder = ?
-            ORDER BY received_at DESC
-            LIMIT 100
-        ");
-        
-        $folder = $connection->imap_selected_folder ?? 'inbox';
-        $stmt->execute([$connection->imap_user['id'], $folder]);
-        $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        $seq = 1;
-        foreach ($emails as $email) {
-            $flags = $email['is_read'] ? '\Seen' : '';
-            $connection->send("* $seq FETCH (FLAGS ($flags) BODY[HEADER] {" . strlen($email['body']) . "}\r\n");
-            $connection->send("From: {$email['from_email']}\r\n");
-            $connection->send("Subject: {$email['subject']}\r\n");
-            $connection->send("Date: {$email['received_at']}\r\n");
-            $connection->send("\r\n)\r\n");
-            $seq++;
-        }
-        
-        $connection->send("$tag OK FETCH completed\r\n");
-    } catch (Exception $e) {
-        $connection->send("$tag NO FETCH failed\r\n");
-    }
-}
-
-echo "Starting Mail Server...\n";
+echo "Starting SMTP Server...\n";
 echo "SMTP listening on port 25\n";
-echo "IMAP listening on port 143\n";
 
 Worker::runAll();

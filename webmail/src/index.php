@@ -64,7 +64,7 @@ function getCurrentUser() {
 // Generate session token for API calls
 function getSessionToken() {
     if (!isLoggedIn()) {
-        return null;
+        return '';
     }
     
     if (!isset($_SESSION['api_token'])) {
@@ -869,5 +869,12 @@ if ($page === 'download' && isLoggedIn()) {
         });
     });
     </script>
+    
+    <?php
+    // Output page-specific scripts after jQuery is loaded
+    if (isset($DASHBOARD_SCRIPTS)) {
+        echo $DASHBOARD_SCRIPTS;
+    }
+    ?>
 </body>
 </html>

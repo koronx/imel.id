@@ -137,13 +137,18 @@ if ($action === 'register') {
     $email = $input['email'] ?? '';
     $password = $input['password'] ?? '';
     $fullName = $input['full_name'] ?? '';
+    $secondaryEmail = $input['secondary_email'] ?? '';
     
-    if (empty($email) || empty($password) || empty($fullName)) {
+    if (empty($email) || empty($password) || empty($fullName) || empty($secondaryEmail)) {
         sendError('Semua field harus diisi');
     }
     
     if (strlen($password) < 8) {
         sendError('Password minimal 8 karakter');
+    }
+    
+    if (!filter_var($secondaryEmail, FILTER_VALIDATE_EMAIL)) {
+        sendError('Format email recovery tidak valid');
     }
     
     $db = getDB();
@@ -155,13 +160,62 @@ if ($action === 'register') {
         sendError('Email sudah terdaftar');
     }
     
-    // Create user
+    // Get default rate limit from settings
+    $stmt = $db->query("SELECT setting_value FROM rate_limit_settings WHERE setting_key = 'default_daily_external_limit'");
+    $rateLimitSetting = $stmt->fetch(PDO::FETCH_ASSOC);
+    $defaultLimit = (int)($rateLimitSetting['setting_value'] ?? 100);
+    
+    // Create user with default rate limit
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-    $stmt = $db->prepare("INSERT INTO users (email, password, full_name) VALUES (?, ?, ?)");
+    $stmt = $db->prepare("INSERT INTO users (email, password, full_name, secondary_email, daily_external_limit) VALUES (?, ?, ?, ?, ?)");
     
     try {
-        $stmt->execute([$email, $passwordHash, $fullName]);
-        sendSuccess([], 'Registrasi berhasil');
+        $stmt->execute([$email, $passwordHash, $fullName, $secondaryEmail, $defaultLimit]);
+        
+        // Send welcome email
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
+        
+        try {
+            $redis = new \Predis\Client([
+                'scheme' => 'tcp',
+                'host' => $redisHost,
+                'port' => $redisPort,
+            ]);
+            
+            $welcomeBody = "Halo {$fullName},\n\nSelamat datang di imel.id!\n\nAkun Anda telah berhasil dibuat dengan detail berikut:\n\nEmail: {$email}\nPassword: {$password}\n\nSilakan login ke https://imel.id untuk mulai menggunakan layanan email kami.\n\nTerima kasih,\nTim imel.id";
+            
+            // Email ke akun imel.id (internal)
+            $emailToImel = [
+                'from' => 'noreply@imel.id',
+                'to' => [$email],
+                'cc' => [],
+                'subject' => 'Selamat Datang di imel.id',
+                'body' => $welcomeBody,
+                'html_body' => '',
+                'attachments' => [],
+                'received_at' => date('Y-m-d H:i:s')
+            ];
+            
+            // Email ke secondary email (external)
+            $emailToSecondary = [
+                'from' => 'noreply@imel.id',
+                'to' => [$secondaryEmail],
+                'cc' => [],
+                'subject' => 'Akun imel.id Anda Telah Dibuat',
+                'body' => $welcomeBody,
+                'html_body' => '',
+                'attachments' => [],
+                'received_at' => date('Y-m-d H:i:s')
+            ];
+            
+            $redis->rpush('email_queue', json_encode($emailToImel));
+            $redis->rpush('email_queue', json_encode($emailToSecondary));
+        } catch (Exception $e) {
+            // Ignore email send error, user already registered
+        }
+        
+        sendSuccess([], 'Registrasi berhasil. Email selamat datang telah dikirim.');
     } catch (PDOException $e) {
         sendError('Registrasi gagal: ' . $e->getMessage());
     }
@@ -281,23 +335,29 @@ if ($action === 'send_email') {
     
     // Rate limiting functions
     function checkExternalEmailRateLimit($userId, $db) {
+        // Get user's daily external limit
+        $stmt = $db->prepare("SELECT daily_external_limit FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        $dailyLimit = (int)($user['daily_external_limit'] ?? 100);
+        
+        // Count emails sent in last 24 hours
         $stmt = $db->prepare("
             SELECT COUNT(*) as count 
             FROM external_email_log 
             WHERE user_id = ? 
-            AND sent_at > NOW() - INTERVAL '1 hour'
+            AND sent_at > NOW() - INTERVAL '24 hours'
         ");
         $stmt->execute([$userId]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        $maxEmailsPerHour = 10;
         $currentCount = $result['count'] ?? 0;
         
         return [
-            'allowed' => $currentCount < $maxEmailsPerHour,
+            'allowed' => $currentCount < $dailyLimit,
             'current' => $currentCount,
-            'limit' => $maxEmailsPerHour,
-            'remaining' => max(0, $maxEmailsPerHour - $currentCount)
+            'limit' => $dailyLimit,
+            'remaining' => max(0, $dailyLimit - $currentCount)
         ];
     }
     
@@ -352,7 +412,7 @@ if ($action === 'send_email') {
         $rateLimit = checkExternalEmailRateLimit($userId, $db);
         
         if ($rateLimit['remaining'] < $externalCount) {
-            sendError("Batas pengiriman email eksternal tercapai. Anda membutuhkan {$externalCount} kuota tetapi hanya tersisa {$rateLimit['remaining']} dari {$rateLimit['limit']} email per jam. Silakan coba lagi nanti.");
+            sendError("Batas pengiriman email eksternal tercapai. Anda membutuhkan {$externalCount} kuota tetapi hanya tersisa {$rateLimit['remaining']} dari {$rateLimit['limit']} email per hari. Silakan coba lagi besok.");
         }
     }
     
@@ -745,6 +805,273 @@ if ($action === 'admin_delete_user') {
         $db->rollBack();
         error_log("[API] Delete user error: " . $e->getMessage());
         sendError('Gagal menghapus user: ' . $e->getMessage());
+    }
+}
+
+// Queue Management endpoints
+if ($action === 'admin_get_queue') {
+    $userId = validateToken();
+    
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    try {
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
+        
+        $redis = new \Predis\Client([
+            'scheme' => 'tcp',
+            'host' => $redisHost,
+            'port' => $redisPort,
+        ]);
+        
+        // Get queue length
+        $queueLength = $redis->llen('email_queue');
+        
+        // Get queue items (max 100)
+        $queueItems = [];
+        $limit = min($queueLength, 100);
+        
+        if ($limit > 0) {
+            $items = $redis->lrange('email_queue', 0, $limit - 1);
+            foreach ($items as $index => $item) {
+                $decoded = json_decode($item, true);
+                if ($decoded) {
+                    $queueItems[] = [
+                        'index' => $index,
+                        'from' => $decoded['from'] ?? '',
+                        'to' => $decoded['to'] ?? '',
+                        'subject' => $decoded['subject'] ?? '',
+                        'size' => $decoded['size'] ?? 0,
+                        'received_at' => $decoded['received_at'] ?? '',
+                        'has_attachments' => !empty($decoded['attachments']),
+                        'temp_file' => $decoded['temp_file'] ?? null
+                    ];
+                }
+            }
+        }
+        
+        sendSuccess([
+            'queue_length' => $queueLength,
+            'items' => $queueItems,
+            'showing' => $limit
+        ]);
+    } catch (Exception $e) {
+        sendError('Gagal mengambil data queue: ' . $e->getMessage());
+    }
+}
+
+if ($action === 'admin_delete_queue_item') {
+    $userId = validateToken();
+    
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    $input = getJsonInput();
+    $itemIndex = (int)($input['index'] ?? -1);
+    
+    if ($itemIndex < 0) {
+        sendError('Index item harus valid');
+    }
+    
+    try {
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
+        
+        $redis = new \Predis\Client([
+            'scheme' => 'tcp',
+            'host' => $redisHost,
+            'port' => $redisPort,
+        ]);
+        
+        // Get the item to delete
+        $items = $redis->lrange('email_queue', $itemIndex, $itemIndex);
+        
+        if (empty($items)) {
+            sendError('Item tidak ditemukan di queue', 404);
+        }
+        
+        $itemToDelete = $items[0];
+        
+        // Mark it with a unique value first
+        $marker = '___DELETE_MARKER_' . uniqid() . '___';
+        $redis->lset('email_queue', $itemIndex, $marker);
+        
+        // Remove the marker (which removes the item)
+        $redis->lrem('email_queue', 1, $marker);
+        
+        // Delete temp file if exists
+        $decoded = json_decode($itemToDelete, true);
+        if (isset($decoded['temp_file']) && file_exists($decoded['temp_file'])) {
+            unlink($decoded['temp_file']);
+        }
+        
+        sendSuccess([], 'Email berhasil dihapus dari queue');
+    } catch (Exception $e) {
+        sendError('Gagal menghapus item: ' . $e->getMessage());
+    }
+}
+
+if ($action === 'admin_clear_queue') {
+    $userId = validateToken();
+    
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    try {
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
+        
+        $redis = new \Predis\Client([
+            'scheme' => 'tcp',
+            'host' => $redisHost,
+            'port' => $redisPort,
+        ]);
+        
+        // Get queue length before deletion
+        $queueLength = $redis->llen('email_queue');
+        
+        // Process temp files in batches to avoid memory exhaustion
+        if ($queueLength > 0) {
+            $batchSize = 100;
+            $processed = 0;
+            
+            while ($processed < $queueLength) {
+                $items = $redis->lrange('email_queue', $processed, $processed + $batchSize - 1);
+                
+                if (empty($items)) {
+                    break;
+                }
+                
+                foreach ($items as $item) {
+                    $decoded = json_decode($item, true);
+                    if (isset($decoded['temp_file']) && file_exists($decoded['temp_file'])) {
+                        @unlink($decoded['temp_file']);
+                    }
+                }
+                
+                $processed += count($items);
+                
+                // Free memory
+                unset($items);
+                gc_collect_cycles();
+            }
+        }
+        
+        // Delete the entire queue
+        $deleted = $redis->del(['email_queue']);
+        
+        sendSuccess([
+            'deleted_count' => $queueLength
+        ], 'Semua email berhasil dihapus dari queue');
+    } catch (Exception $e) {
+        sendError('Gagal menghapus queue: ' . $e->getMessage());
+    }
+}
+
+if ($action === 'admin_search_queue') {
+    $userId = validateToken();
+    
+    // Check if user is admin
+    $db = getDB();
+    $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $currentUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($currentUser['email'] !== 'admin@imel.id') {
+        sendError('Unauthorized - Admin only', 403);
+    }
+    
+    $searchQuery = $_GET['q'] ?? '';
+    
+    try {
+        $redisHost = getenv('REDIS_HOST') ?: 'redis';
+        $redisPort = getenv('REDIS_PORT') ?: 6379;
+        
+        $redis = new \Predis\Client([
+            'scheme' => 'tcp',
+            'host' => $redisHost,
+            'port' => $redisPort,
+        ]);
+        
+        $queueLength = $redis->llen('email_queue');
+        $queueItems = [];
+        
+        // Process in batches to avoid memory exhaustion
+        if ($queueLength > 0) {
+            $batchSize = 100;
+            $limit = min($queueLength, 500); // Max 500 results for search
+            $processed = 0;
+            
+            while ($processed < $limit && count($queueItems) < 500) {
+                $items = $redis->lrange('email_queue', $processed, $processed + $batchSize - 1);
+                
+                if (empty($items)) {
+                    break;
+                }
+                
+                foreach ($items as $index => $item) {
+                    $decoded = json_decode($item, true);
+                    if ($decoded) {
+                        // Search in from, to, and subject
+                        $searchIn = strtolower(($decoded['from'] ?? '') . ' ' . ($decoded['to'] ?? '') . ' ' . ($decoded['subject'] ?? ''));
+                        
+                        if (empty($searchQuery) || strpos($searchIn, strtolower($searchQuery)) !== false) {
+                            $queueItems[] = [
+                                'index' => $processed + $index,
+                                'from' => $decoded['from'] ?? '',
+                                'to' => $decoded['to'] ?? '',
+                                'subject' => $decoded['subject'] ?? '',
+                                'size' => $decoded['size'] ?? 0,
+                                'received_at' => $decoded['received_at'] ?? '',
+                                'has_attachments' => !empty($decoded['attachments']),
+                                'temp_file' => $decoded['temp_file'] ?? null
+                            ];
+                        }
+                    }
+                }
+                
+                $processed += count($items);
+                
+                // Free memory
+                unset($items);
+                
+                // Stop if we have enough results
+                if (count($queueItems) >= 500) {
+                    break;
+                }
+            }
+        }
+        
+        sendSuccess([
+            'queue_length' => $queueLength,
+            'items' => $queueItems,
+            'search_query' => $searchQuery,
+            'found' => count($queueItems)
+        ]);
+    } catch (Exception $e) {
+        sendError('Gagal mencari queue: ' . $e->getMessage());
     }
 }
 
