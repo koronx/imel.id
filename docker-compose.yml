@@ -1,73 +1,123 @@
+name: imel-id
+
 services:
+  # ------------------------------------------------------------- PostgreSQL
   database:
-    image: postgres:15-alpine
-    container_name: maildb
+    image: postgres:16-alpine
+    container_name: imel-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: mailuser
-      POSTGRES_PASSWORD: mailpassword
-      POSTGRES_DB: maildb
+      POSTGRES_USER: ${DB_USER:-mailuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mailpassword}
+      POSTGRES_DB: ${DB_NAME:-maildb}
+      TZ: ${TZ:-Asia/Jakarta}
     volumes:
-      - ./db/data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     ports:
-      - "5432:5432"
-    networks:
-      - mailnet
+      - "${DB_PORT:-5432}:5432"
+    networks: [mailnet]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mailuser"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mailuser} -d ${DB_NAME:-maildb}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
+  # ------------------------------------------------ SMTP + IMAP + relay queue
   mailserver:
     build:
-      context: ./mailserver
-      dockerfile: Dockerfile
-    container_name: mailserver
-    ports:
-      - "25:25"       # SMTP
-      - "143:143"     # IMAP
-      - "587:587"     # SMTP submission
-      - "993:993"     # IMAPS
+      context: .
+      dockerfile: mailserver/Dockerfile
+    container_name: imel-mailserver
+    restart: unless-stopped
     environment:
       DB_HOST: database
       DB_PORT: 5432
-      DB_NAME: maildb
-      DB_USER: mailuser
-      DB_PASSWORD: mailpassword
+      DB_NAME: ${DB_NAME:-maildb}
+      DB_USER: ${DB_USER:-mailuser}
+      DB_PASSWORD: ${DB_PASSWORD:-mailpassword}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-imel.id}
+      MAIL_HOSTNAME: ${MAIL_HOSTNAME:-mail.imel.id}
+      STORAGE_PATH: /storage
+      WORKER_COUNT: ${WORKER_COUNT:-2}
+      # outbound relay is off by default: everything local still works
+      RELAY_ENABLED: ${RELAY_ENABLED:-false}
+      SMTP_RELAY_HOST: ${SMTP_RELAY_HOST:-}
+      SMTP_RELAY_PORT: ${SMTP_RELAY_PORT:-587}
+      SMTP_RELAY_USER: ${SMTP_RELAY_USER:-}
+      SMTP_RELAY_PASSWORD: ${SMTP_RELAY_PASSWORD:-}
+      SMTP_RELAY_TLS: ${SMTP_RELAY_TLS:-true}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${SMTP_PORT:-25}:25"
+      - "${SUBMISSION_PORT:-587}:587"
+      - "${IMAP_PORT:-143}:143"
+    volumes:
+      - ./storage:/storage
     depends_on:
       database:
         condition: service_healthy
-    networks:
-      - mailnet
-    volumes:
-      - ./storage:/storage
+    networks: [mailnet]
 
-  webmail:
+  # --------------------------------------------------------------- REST API
+  api:
     build:
-      context: ./webmail
-      dockerfile: Dockerfile
-    container_name: webmail
-    ports:
-      - "80:80"
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: imel-api
+    restart: unless-stopped
     environment:
       DB_HOST: database
       DB_PORT: 5432
-      DB_NAME: maildb
-      DB_USER: mailuser
-      DB_PASSWORD: mailpassword
-      MAIL_HOST: mailserver
-      MAIL_PORT: 25
-      IMAP_HOST: mailserver
-      IMAP_PORT: 143
-    depends_on:
-      - mailserver
-      - database
-    networks:
-      - mailnet
+      DB_NAME: ${DB_NAME:-maildb}
+      DB_USER: ${DB_USER:-mailuser}
+      DB_PASSWORD: ${DB_PASSWORD:-mailpassword}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-imel.id}
+      MAIL_HOSTNAME: ${MAIL_HOSTNAME:-mail.imel.id}
+      STORAGE_PATH: /storage
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_TTL: ${JWT_TTL:-604800}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      TZ: ${TZ:-Asia/Jakarta}
+    ports:
+      - "${API_PORT:-8000}:80"
     volumes:
-      - ./webmail/src:/var/www/html
       - ./storage:/storage
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [mailnet]
+
+  # ------------------------------------------------- React webmail (nginx)
+  webmail:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: imel-webmail
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    networks: [mailnet]
+
+  # ------------------------------------- optional database UI (profile: tools)
+  adminer:
+    image: adminer:4-standalone
+    container_name: imel-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: database
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+    depends_on:
+      - database
+    networks: [mailnet]
+    profiles: [tools]
+
+volumes:
+  db-data:
 
 networks:
   mailnet:

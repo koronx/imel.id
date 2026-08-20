@@ -1,17 +1,19 @@
 {
-    "name": "imel.id/mailserver",
-    "description": "Custom Mail Server with SMTP and IMAP support",
+    "name": "imel-id/mailserver",
+    "description": "imel.id mail server: SMTP submission, inbound SMTP, IMAP and outbound relay",
+    "type": "project",
+    "license": "MIT",
     "require": {
-        "php": ">=8.0",
+        "php": ">=8.1",
         "workerman/workerman": "^4.1",
         "ext-pdo": "*",
         "ext-pdo_pgsql": "*",
         "ext-pcntl": "*",
-        "ext-sockets": "*"
+        "ext-sockets": "*",
+        "ext-mbstring": "*"
     },
-    "autoload": {
-        "psr-4": {
-            "MailServer\\": "src/"
-        }
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
     }
 }

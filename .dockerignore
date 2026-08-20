@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+README.md
+client/node_modules
+client/dist
+mailserver/vendor
+api/vendor
+storage
+db/data
+webmail
+legacy
+**/*.log

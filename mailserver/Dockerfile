@@ -1,30 +1,32 @@
+# ---------------------------------------------------------------------------
+# imel.id mail server — Workerman SMTP/IMAP + outbound relay worker.
+# Build context is the repository root so shared/ can be copied in.
+# ---------------------------------------------------------------------------
 FROM php:8.2-cli
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    git \
-    unzip \
-    && docker-php-ext-install pdo pdo_pgsql pcntl sockets \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq-dev libonig-dev git unzip \
+    && docker-php-ext-install -j"$(nproc)" pdo pdo_pgsql pcntl sockets mbstring \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Set working directory
-WORKDIR /app
+RUN { \
+        echo 'memory_limit = 512M'; \
+        echo 'date.timezone = Asia/Jakarta'; \
+    } > /usr/local/etc/php/conf.d/imel.ini
 
-# Copy composer files first
-COPY composer.json ./
+WORKDIR /app/mailserver
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader
+COPY mailserver/composer.json ./
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Copy application files
-COPY src/ ./
+COPY shared/ /app/shared/
+COPY mailserver/src/ ./src/
 
-# Expose ports
-EXPOSE 25 143 587 993
+RUN mkdir -p /storage
 
-# Run the mail server
-CMD ["php", "server.php", "start"]
+# 25 inbound SMTP, 587 submission, 143 IMAP
+EXPOSE 25 143 587
+
+CMD ["php", "src/server.php", "start"]

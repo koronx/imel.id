@@ -1,23 +1,31 @@
-# Ignore Docker volumes
-db/data/
+# Environment
+.env
 
-# Ignore uploaded files
+# Database & storage volumes
+db/data/
 storage/
 
-# Ignore composer vendor
+# PHP dependencies
 mailserver/vendor/
 webmail/vendor/
+api/vendor/
 
-# Ignore system files
+# Frontend
+client/node_modules/
+client/dist/
+client/.vite/
+node_modules/
+
+# System files
 .DS_Store
 Thumbs.db
 
-# Ignore IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Ignore logs
+# Logs
 *.log
