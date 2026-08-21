@@ -5,7 +5,7 @@
  *   SMTP  :25   inbound mail from other servers
  *   SMTP  :587  authenticated submission from mail clients
  *   IMAP  :143  mail access for desktop/mobile clients
- *   queue       relays everything addressed outside our domain
+ *   queue       delivers everything addressed outside our domain directly to MX
  */
 
 declare(strict_types=1);

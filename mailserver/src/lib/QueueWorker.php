@@ -9,9 +9,8 @@ use Imel\Shared\Util;
 use Throwable;
 
 /**
- * Relays queued messages addressed outside our own domain.
- * Delivery goes through SMTP_RELAY_HOST when configured, otherwise the
- * recipient's MX records are resolved and contacted directly.
+ * Delivers queued messages addressed outside our own domain directly to the
+ * recipient's MX hosts over SMTP port 25.
  */
 final class QueueWorker
 {
@@ -52,18 +51,12 @@ final class QueueWorker
             }
             $raw = (string) file_get_contents($job['raw_path']);
 
-            if (filter_var(getenv('RELAY_ENABLED') ?: 'false', FILTER_VALIDATE_BOOL) === false) {
-                throw new \RuntimeException(
-                    'Relay disabled: set RELAY_ENABLED=true and SMTP_RELAY_HOST to deliver outside ' . Util::mailDomain()
-                );
-            }
-
             foreach ($this->groupByDomain($recipients) as $domain => $addresses) {
                 $this->deliverDomain((string) $job['from_email'], $domain, $addresses, $raw);
             }
 
             $db->run("UPDATE outbound_queue SET status = 'sent', last_error = '' WHERE id = ?", [$job['id']]);
-            Util::log('queue', 'relayed job ' . $job['id'] . ' to ' . implode(', ', $recipients));
+            Util::log('queue', 'delivered job ' . $job['id'] . ' directly to ' . implode(', ', $recipients));
         } catch (Throwable $e) {
             $failed = $attempts >= self::MAX_ATTEMPTS;
             $backoff = min(3600, 60 * (2 ** $attempts));
@@ -92,12 +85,6 @@ final class QueueWorker
     /** @param string[] $addresses */
     private function deliverDomain(string $from, string $domain, array $addresses, string $raw): void
     {
-        $relay = Client::fromEnv();
-        if ($relay !== null) {
-            $relay->send($from, $addresses, $raw);
-            return;
-        }
-
         $hosts = Client::resolveMx($domain);
         if (!$hosts) {
             throw new \RuntimeException("No MX record for {$domain}");
@@ -106,6 +93,7 @@ final class QueueWorker
         $lastError = '';
         foreach ($hosts as $host) {
             try {
+                // Direct delivery uses the recipient MX on standard SMTP port 25.
                 (new Client($host, 25))->send($from, $addresses, $raw);
                 return;
             } catch (Throwable $e) {

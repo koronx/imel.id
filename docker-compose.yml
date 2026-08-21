@@ -40,7 +40,7 @@ services:
       MAIL_HOSTNAME: ${MAIL_HOSTNAME:-mail.imel.id}
       STORAGE_PATH: /storage
       WORKER_COUNT: ${WORKER_COUNT:-2}
-      # outbound relay is off by default: everything local still works
+      # outbound delivery goes directly to recipient MX hosts
       RELAY_ENABLED: ${RELAY_ENABLED:-false}
       SMTP_RELAY_HOST: ${SMTP_RELAY_HOST:-}
       SMTP_RELAY_PORT: ${SMTP_RELAY_PORT:-587}
