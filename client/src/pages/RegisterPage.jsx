@@ -48,10 +48,7 @@ export default function RegisterPage() {
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2, bgcolor: 'background.default' }}>
       <Paper variant="outlined" sx={{ width: '100%', maxWidth: 480, p: { xs: 3, sm: 6 }, borderRadius: 2 }}>
         <Stack spacing={1} alignItems="center" sx={{ mb: 3 }}>
-          <Box component="svg" viewBox="0 0 24 24" sx={{ width: 48, height: 40 }}>
-            <path fill="#ea4335" d="M2 6l10 6 10-6v12H2z" />
-            <path fill="#c5221f" d="M2 6h20v2L12 14 2 8z" />
-          </Box>
+          <Box component="img" src="/logo.png" alt="imel.id" sx={{ width: 64, height: 64, objectFit: 'contain' }} />
           <Typography variant="h5" sx={{ fontWeight: 400 }}>Buat akun imel.id</Typography>
           <Typography variant="body2" color="text.secondary">Gratis dan hanya butuh satu menit</Typography>
         </Stack>

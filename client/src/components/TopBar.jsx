@@ -67,10 +67,7 @@ export default function TopBar({ onToggleSidebar }) {
         sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 2, cursor: 'pointer', userSelect: 'none' }}
         onClick={() => navigate('/mail/inbox')}
       >
-        <Box component="svg" viewBox="0 0 24 24" sx={{ width: 34, height: 26 }}>
-          <path fill="#ea4335" d="M2 6l10 6 10-6v12H2z" />
-          <path fill="#c5221f" d="M2 6h20v2L12 14 2 8z" />
-        </Box>
+        <Box component="img" src="/logo.png" alt="imel.id" sx={{ width: 34, height: 34, objectFit: 'contain' }} />
         {!isMobile && (
           <Typography sx={{ fontSize: 22, color: 'text.secondary', letterSpacing: -0.5 }}>
             imel.id

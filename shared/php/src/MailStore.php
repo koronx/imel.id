@@ -200,12 +200,12 @@ final class MailStore
                 continue;
             }
             $db->run(
-                'INSERT INTO contacts (user_id, email, name, times_contacted, last_contacted_at)
+                "INSERT INTO contacts (user_id, email, name, times_contacted, last_contacted_at)
                  VALUES (?,?,?,1,NOW())
                  ON CONFLICT (user_id, email) DO UPDATE
                  SET times_contacted = contacts.times_contacted + 1,
                      last_contacted_at = NOW(),
-                     name = CASE WHEN contacts.name = '' THEN EXCLUDED.name ELSE contacts.name END',
+                     name = CASE WHEN contacts.name = '' THEN EXCLUDED.name ELSE contacts.name END",
                 [$userId, strtolower((string) $email), $name]
             );
         }
